@@ -113,8 +113,20 @@ decodes as callsign `RYR1069`. This is the same idea as dump1090's single-bit co
 (XOR) with other data. In an all-call reply (DF 11) it is combined with the interrogator
 identifier, so the CRC of a clean frame comes out as that identifier: for `5D484FDEA248F5`
 the remainder is 22, and 0 means a spontaneous squitter. Your Phase 2 finding (a DF 11 frame
-whose remainder is `000001`, read as interrogator ID 1) is this case. The extra rule dump1090
-applies there (as reported at the end of Phase 2) is not in the Riddle. For formats where the parity is
+whose remainder is `000001`, read as interrogator ID 1) is this case.
+
+dump1090 adds an acceptance rule of its own that is not in the Riddle (`dump1090.c` lines 1202-1209
+at the pinned commit `efe64db3c6ba1520291331628a33c1e208e851a6`). A DF 11 frame whose remainder
+is not zero is still accepted, with the remainder stored as its interrogator ID, only if both of
+these hold:
+- the remainder is below 80, and
+- the frame's ICAO address is on dump1090's "recently seen" list.
+
+That list only gets addresses from DF 11/17/18 frames that passed the CRC with no bit repaired
+(lines 1197-1200). An entry counts as recent for 60 seconds of wall-clock time (lines 66 and 919-924).
+Otherwise the frame is rejected.
+
+For formats where the parity is
 combined with the *address*, the ICAO address can be recovered as (remainder of the payload)
 XOR (received parity). Checked with the book's example `A0001838CA380031440000F24177`:
 `CE2CA7 XOR F24177 = 3C6DD0`.
@@ -242,7 +254,9 @@ files in `tests/golden/` can check each link at message level.
    are short and 7 are long, but I have not verified how a receiver decides which length applies;
    take that rule from dump1090's source when writing the Phase 3 pseudocode.
 2. **CRC check.** DF 17/18: whole-frame remainder must be 0. DF 11: the remainder is the interrogator
-   ID, plus the DF 11 rule from the Phase 2 report.
+   ID. To match the golden files, also apply dump1090's DF 11 acceptance rule (`dump1090.c` lines
+   1202-1209 at `efe64db`, described in section 4): a nonzero remainder is accepted only if it's below 80 and
+   the ICAO address was recently seen in a clean DF 11/17/18 frame.
 3. **Routing.** DF first, then TC for DF 17.
 4. **Field decoding.** Slices and formulas from sections 3, 5 and 6.
 5. **State.** Position needs memory: an even/odd pair per ICAO, or a recent reference position.
