@@ -170,3 +170,180 @@ One entry per real choice. Status is **Draft** until approved, then **Approved**
   analog signals, where dump1090 uses tuned tricks that aren't in the Riddle. Allowing no extra messages means the
   decoder never outputs anything dump1090 rejected. Requiring every miss to be explained keeps it honest without requiring a copy.
   The 10-message (about 5%) limit is the threshold for buying the dongle.
+- **Revision, 2026-10-12 (approved before step a2 was built): "zero *unexplained* extras".** The stage 3d prototype had
+  already shown 3 extras inside the decoded region (samples 43,313, 52,744 and 129,115) that look like real transmissions
+  dump1090 missed, plus line 128's other no-fix reading. So the extras rule becomes **zero unexplained extras**. An extra
+  is explained only if **all four** hold:
+  - **(a)** it's CRC-valid by remainder 0 on DF 11/17/18, or by address parity to a listed address. An extra accepted
+    only by the interrogator-ID rule or by repair is *unexplained*;
+  - **(b)** all four preamble pulses are at or above the signal floor (decision #10);
+  - **(c)** the report names the dump1090 condition, or another documented reason, that rejects or misreads it;
+  - **(d)** it's listed in `tests/golden/known_extras.txt` (start, hex, mode, reason).
+
+  The 10-miss limit and the rule that every miss is explained stay as they are. The holdout tail (decision #13) is reported
+  separately and nothing is tuned on it.
+
+## #9: Never repair the first 5 bits (the DF), for either frame length
+
+- **Date:** 2026-10-12
+- **Status:** Approved
+- **Decision:** Single-bit repair (`src/decoder/crc.py`) only considers bits 5 onward, for both 56- and 112-bit frames.
+- **What dump1090 does** (read from `dump1090.c` at `efe64db`, in WSL):
+  - It builds its one-bit error table over positions 5-111 of a 112-bit frame (line 806), so it never repairs the DF of a long frame.
+  - For a 56-bit frame it shifts those positions by 56 and keeps any that land inside the frame (874-879). Table positions 56-60
+    land on bits 0-4, so **it can repair the DF of a short frame**.
+  - It reads the DF before repairing (1099) and doesn't re-read it afterwards (1112-1121). A short frame whose DF bits got
+    repaired is still handled as the DF it was first read as (11).
+- **Alternatives:** Copy dump1090's behavior exactly: repairable bits 0-55 for short frames.
+- **Why:** A wrong DF means the frame was also cut to the wrong length, so "repairing" it produces a message whose type
+  and length disagree. dump1090's own comment at 792-794 gives the same reason for excluding the DF, and the short-frame case
+  looks like a side effect of reusing the 112-bit table. **It can't affect `modes1.bin`:** the bits dump1090 repaired
+  in the default file are 66, 55, 55, 61, 99 and 5, none of them below 5. If a future recording shows a difference, it would
+  appear as a default-run miss under decision #8 and be explained there.
+
+## #10: Preamble signal floor of 9.0
+
+- **Date:** 2026-10-12
+- **Status:** Approved
+- **Decision:** A preamble candidate's weakest pulse must have magnitude of at least 9.0 (`SIGNAL_FLOOR` in
+  `src/decoder/pipeline.py`; magnitude units are 0 to about 180).
+- **Measured on `modes1.bin`:**
+  - The median magnitude is 3.0.
+  - At the 194 golden messages with an exact start, the weakest pulse is never below 24.4 (5th percentile 27.0).
+  - All 194 pass the preamble test.
+- **Alternatives:** no floor (relies on the shape test alone, so more noise reaches the CRC); a floor tied to the
+  measured noise level per buffer (better for live use, but more to build and test).
+- **Why:** 9.0 is three times the noise median and still well below the weakest real pulse, so it can't cause a miss here.
+  Revisit with my own recordings, where signal levels will differ.
+- **Limit:** measured on one strong aircraft (`4d2023`, the only one in `modes1.bin`). Revisit with live data.
+
+## #11: Start-sample fixture built with dump1090 prefix search
+
+- **Date:** 2026-10-12
+- **Status:** Approved
+- **Decision:** `tests/golden/modes1_starts.txt` gives each golden no-fix line's start sample. It's built in two steps:
+  1. `scripts/dump1090_prefix_search.sh nofix all` (WSL) finds the shortest prefix after which dump1090 outputs the line.
+  2. `scripts/make_start_fixture.py` refines it by searching estimate−8 to estimate+32 for the start where plain bit
+     comparison reproduces the golden hex.
+
+  Lines with such a start are flagged `exact` (194); the others are `approximate` (23). Tests assert exact starts only.
+  Nothing under `src/decoder/` reads the fixture.
+- **Alternatives:** matching golden hex against the recording alone (can't place frames dump1090 decoded with phase
+  correction, and confuses repeated identical messages); reading dump1090's internal buffer offsets (needs its debug code).
+- **Why:** It uses dump1090 only as a black box, and every `exact` start is checked against the recording.
+
+## #12: Skip candidates that start inside an accepted message
+
+- **Date:** 2026-10-12
+- **Status:** Approved
+- **Decision:** After a message is accepted, preamble candidates that begin before its last sample are ignored.
+- **Alternatives:** try every candidate (the same frame could be accepted twice from neighboring start samples, and
+  bits inside a real message can look like a preamble).
+- **Why:** One transmission can't contain another. dump1090 also jumps past a message once its CRC passes (`dump1090.c` 1769-1771).
+  On `modes1.bin` this rule causes no misses (none of the 23 misses is "skipped: inside our message").
+
+## #13: Supplementary golden files from the padded recording
+
+- **Date:** 2026-10-12
+- **Status:** Approved
+- **Decision:** Keep the approved golden files (#4, #5) unchanged and compare against them only within the part dump1090
+  decoded: samples 0-262,143. Add four supplementary files, `tests/golden/modes1_padded_{raw,decoded}_{nofix,default}.txt`,
+  from the same pinned dump1090 run on `modes1.bin` padded with byte 127 to 786,432 bytes (3 full buffers), made by
+  `scripts/make_padded_golden.sh`. They're used only to check the tail (samples 262,144 onward).
+- **Why padding is needed:** dump1090 never decodes a file's last, partial 262,144-byte buffer (end-of-file race,
+  `dump1090.c` 496-498 and 2986-2989). Byte 127 is the "no signal" value dump1090 itself pads a short buffer with (503-506).
+- **Checked:** the padded outputs start with exactly the approved 217 lines in both modes, then add 66 (no-fix) or
+  67 (default) tail messages. Each run was repeated with identical output and empty stderr.
+- **Alternatives:** replace the approved files (changes the answer key that decision #8 was written against); ignore
+  the tail (leaves 30% of the recording unchecked).
+- **Limit:** there's no start-sample fixture for the tail, so tail lines are aligned with ours in order by hex. That's
+  weaker evidence than the start-based matching used for the first 262,144 samples.
+
+## #14: Preamble test tolerates energy in the samples beside a pulse
+
+- **Date:** 2026-10-12
+- **Status:** Approved. The tail extra at 314,791 is an explained real transmission dump1090 missed (see below). It's in the
+  holdout, so decision #8 is unchanged.
+- **Decision:** A preamble candidate needs:
+  - each pulse louder than the quiet samples right beside it;
+  - the quiet samples away from pulses (offsets 4, 5, 11-14) below 2/3 of the average pulse level;
+  - the weakest pulse at or above `SIGNAL_FLOOR`.
+
+  This replaces "every pulse louder than every quiet sample".
+- **Why:** A signal that arrives between sample instants spreads each pulse into its neighbour, so testing those neighbours
+  rejects real messages. This follows the dump1090 behavior already documented in `docs/pseudocode.md` stage 2 (`dump1090.c`
+  1599-1650), written in our own form and not identical to it.
+- **Measured:** no-fix misses unchanged at 23, default misses 21 → 20 (line 193's preamble is now found and repaired), still 0
+  extras inside the region dump1090 decoded. All 194 exact-start golden messages remain candidates.
+- **Alternatives:** keep the strict test (simpler, but contradicts the physical reason above for no measured gain).
+- **The tail extra this introduced, at sample 314,791 (resolved):** a DF 17 with CRC remainder 0, address `4d2023`, bit for bit
+  identical to the message dump1090 decodes at sample 317,950. dump1090 rejects its preamble: pulse 0 is weak (11.3) while
+  sample 6 is 17.7, so dump1090's "sample 6 below pulse 0" condition fails (all its other preamble conditions pass). It
+  doesn't overlap dump1090's DF 11 at padded line 253, which starts about 93 samples after this frame ends (tail fixture,
+  decision #13). Verdict: **a real transmission dump1090 missed**, not an overlap and not a false accept. Why identical content
+  was sent twice 1.58 ms apart is unexplained.
+
+## #15: Gate the dongle threshold on default mode; keep reporting no-fix
+
+- **Date:** 2026-10-12
+- **Status:** Withdrawn (2026-10-12). It's moot, because both modes are predicted to meet the miss limit with step a2, so decision
+  #8 keeps gating on both modes.
+- **Decision (as drafted):** Decision #8's dongle threshold (at most 10 missing, every miss explained, zero extras) is measured against the
+  **default** (fix-on) golden file, because default mode is what will run live. The no-fix comparison is still run and
+  reported every time, but doesn't gate the purchase.
+- **Alternatives:**
+  - Keep both modes gating, as decision #8 is written now.
+  - Revise the limit itself (for example, more than 10 missing allowed in no-fix).
+- **Why:** Live decoding will use error correction, so default mode is the honest measure of what the receiver delivers.
+  No-fix stays useful as a diagnostic of the demodulator on its own.
+- **Context (predictions from the stage 3d prototype, first 217 lines, not measured runs):**
+  - With step a2: default about 1 missing (line 174, a preamble miss), no-fix about 4.
+  - Both modes also produce 3 extras inside the decoded region that look like real transmissions dump1090 missed (CRC-valid,
+    strong pulses; two fail dump1090's own preamble condition).
+  - Under decision #8's zero-extras rule these would still block the threshold in *either* mode. So this decision doesn't
+    settle the extras question, which needs its own decision once a2 is built and measured.
+
+## #16: Build step a2, the sub-sample timing re-read; defer step a1
+
+- **Date:** 2026-10-12
+- **Status:** Approved (stage 3d design approved for building; this entry records what was built)
+- **Decision:** When `accept()` rejects a candidate's plain read, estimate the timing offset from the preamble's spill-over and
+  re-read the bits with energy windows that follow the pulses (`src/decoder/timing.py`, `docs/pseudocode.md` stage 3d). Five
+  hypotheses are tried: the estimate, then ±0.25 and ±0.5, nearest first, and the first that `accept()` takes wins. This runs
+  in both modes. Step a1 (CRC-assisted bit flipping, stage 3c) isn't built: after a2 it added nothing on the first 217 lines.
+- **Alternatives:** step a1 alone (predicted 23 → 18 in default, never in no-fix); a fixed half-sample shift (made line 185 worse);
+  trying all hypotheses and rejecting conflicts (no conflicts seen, about 2.7 times the CRC trials).
+- **Measured (first 217 lines, decided only on these):**
+  - **no-fix:** missing 23 → 4 (128, 156, 174, 178);
+  - **default:** missing 20 → 1 (174);
+  - **extras inside the decoded region:** 4 (no-fix) and 3 (default), all explained under decision #8 (revised);
+  - **holdout tail, untouched by tuning:** 66/66 (no-fix) and 67/67 (default) matched, with 2 extras each.
+- **Cost:** measured with the single method in `scripts/measure_speed.py` (decoding interleaved with and without the
+  re-read, 3 sessions): the re-read adds 0.9 to 1.9 ms per run in no-fix and −0.1 to 4.5 ms in default mode on
+`modes1.bin`, which is partly within the measurement noise. Default mode with the re-read on runs at
+  4.2 to 6.5 times real time on one strong aircraft (`docs/phase4-golden-report.md`, "Speed"). An earlier figure of
+  "about 6.7 times" came from one session and isn't the number to quote.
+- **Risk:** a falsely accepted re-read frame would add its address to the recently-seen list. We match dump1090 here and
+  revisit with live data in Phase 5.
+
+## #17: Output-field scope at checkpoint C
+
+- **Date:** 2026-10-12
+- **Status:** Approved (including the DF 0/4/20 altitude and the DF 5/21 squawk)
+- **Decision:** Checkpoint C decodes:
+  - ADS-B identification (TC 1-4), airborne position with barometric altitude (TC 9-18: altitude, flags, raw CPR) and
+    velocity (TC 19, all four subtypes);
+  - pure CPR functions (`nl`, `global_position`, `local_position`);
+  - **beyond the approved list:** the 13-bit altitude of DF 0/4/20 and the squawk of DF 5/21.
+
+  Not decoded (they return `None`):
+  - Gillham altitude (Q = 0) and metric altitude (M = 1);
+  - surface position, GNSS-height position and the other type codes;
+  - DF 20/21 Comm-B contents.
+
+  Pairing even/odd frames per aircraft stays in Phase 5.
+- **Alternatives:** stick strictly to the ADS-B fields (the 34 DF 0/4/5/20/21 golden messages would go unchecked); also decode
+  Gillham altitude now (no message in `modes1.bin` uses it, so it couldn't be checked against the golden files).
+- **Why:** The DF 0/4/20 altitude and the DF 5/21 squawk are small, have a cited layout (Riddle, "Surveillance reply"), and can
+  be checked against 34 golden messages and pyModeS. The squawk is needed for the 7500/7600/7700 rules in Phase 6.
+  Everything left out is either absent from this recording or needs tracking state.

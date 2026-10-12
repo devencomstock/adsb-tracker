@@ -1,0 +1,9 @@
+# Explained extra messages inside the region dump1090 decoded (samples 0-262,143), decision #8 (revised).
+# Each must also meet criteria (a) CRC-valid by remainder 0 on DF 11/17/18 or address parity to a listed
+# address, and (b) all four preamble pulses at or above the signal floor; tests/test_golden_samples.py checks both.
+# dump1090 conditions refer to its preamble checks (dump1090.c 1602-1611 at efe64db, docs/pseudocode.md stage 2).
+# start	hex	mode	reason
+43313	02e60eba41a90a	both	dump1090's preamble conditions all pass here but it outputs nothing at this start, so its own bit read fails the CRC; our timing re-read (offset -0.32) gives address parity to 4d2023; pulses 42-56
+52744	5f4d20232daf00	both	rejected by dump1090's preamble condition "sample 6 below pulse 0"; our timing re-read (offset -0.34) gives remainder 0; pulses 34-46
+129115	5d4d20237a55a6	both	rejected by dump1090's preamble condition "sample 6 below pulse 0"; our timing re-read (offset -0.34) gives remainder 0; pulses 63-81
+144765	5d4d20237a55a6	nofix	golden line 128's other reading: dump1090 --no-fix reads ...a7 (interrogator ID 1), our re-read (offset -0.33) reads ...a6 with remainder 0, which is the default golden line 128 (docs/pseudocode.md stage 4c, bit-55 ambiguity)

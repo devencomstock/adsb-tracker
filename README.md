@@ -11,8 +11,8 @@
 > aircraft with FAA registry data, and showing it on a map centered on campus. Rule-based checks
 > flag unusual behavior.
 
-Status: Phase 0 (setup). See [docs/ROADMAP.md](docs/ROADMAP.md) for the plan and
-[docs/decisions.md](docs/decisions.md) for the reasoning.
+Status: the from-scratch decoder is done (Phase 4); next is the backend (Phase 5). See
+[docs/ROADMAP.md](docs/ROADMAP.md) for the plan and [docs/decisions.md](docs/decisions.md) for the reasoning.
 
 ## Setup (Windows PowerShell)
 
@@ -23,6 +23,43 @@ python -m pip install -r requirements-dev.txt
 pytest
 ruff check .
 ```
+
+## The decoder
+
+`src/decoder/` turns raw 1090 MHz samples (8-bit I/Q at 2 MHz) into Mode S / ADS-B messages. It's written from
+scratch; dump1090 and pyModeS are only used as answer keys in tests. How each stage works is in
+[docs/decoder-notes.md](docs/decoder-notes.md), and the design is in [docs/pseudocode.md](docs/pseudocode.md).
+
+Get the test recording, the one dump1090 ships with, pinned to the commit the answer key came from:
+
+```powershell
+Invoke-WebRequest -UseBasicParsing "https://raw.githubusercontent.com/antirez/dump1090/efe64db3c6ba1520291331628a33c1e208e851a6/testfiles/modes1.bin" -OutFile data\modes1.bin
+(Get-FileHash data\modes1.bin -Algorithm SHA256).Hash   # expect 3A33E160...FD5FB3094
+```
+
+Decode it (one `*hex;` line per message, like `dump1090 --raw`; `--fields` adds the decoded fields, and
+`--no-fix` turns off single-bit error correction):
+
+```powershell
+$env:PYTHONPATH = "src"
+python -m decoder --ifile data\modes1.bin --fields
+```
+
+Compare with dump1090's answer key and measure speed (decision #8; writes the report):
+
+```powershell
+python scripts\compare_golden.py --report docs\phase4-golden-report.md
+python scripts\measure_speed.py
+```
+
+Current result on `modes1.bin` ([docs/phase4-golden-report.md](docs/phase4-golden-report.md)):
+- **default mode:** 216/217 messages matched;
+- **no-fix mode:** 213/217 matched;
+- **every miss explained, and every extra explained;**
+- **speed:** 4.2 to 6.5 times real time in default mode, measured the same way every time (the method and the
+  range across sessions are in the report's "Speed" section).
+
+The tests that need the recording are skipped when `data\modes1.bin` is absent.
 
 Database (not started yet, needs Docker Desktop):
 

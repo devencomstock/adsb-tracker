@@ -80,6 +80,50 @@ appears under `/mnt/c/...`):
 bash scripts/dump1090_prefix_search.sh nofix 0 112 128 174 185 188 193
 ```
 
+## dump1090 skips the end of the recording
+
+The golden files cover only **the first 524,288 bytes (samples 0-262,143)** of `modes1.bin`. dump1090 reads files in
+262,144-byte buffers. At end of file its reader thread sets `Modes.exit` (`dump1090.c` 496-498), and the decode loop
+checks that flag straight after decoding the previous buffer (2986-2989), so the last, partial buffer is never decoded.
+Check: padding `modes1.bin` with byte 127 (zero signal) up to 786,432 bytes makes the same dump1090 output 283 messages
+instead of 217. The last golden line starts at sample 261,513.
+
+### Supplementary padded golden files (decision #13)
+
+To check the part dump1090 skipped, the same pinned dump1090 was also run on `modes1.bin` padded with byte 127
+(no signal) to 786,432 bytes = 3 full buffers. The approved files above are unchanged. In WSL, from the repo root:
+
+```bash
+bash scripts/make_padded_golden.sh
+```
+
+Padded input: 786,432 bytes, sha256 `2f3b7e858498e2e59a173e01e85835c8c9935e4f4b52b83a5bf96f08942907f4`. Each command ran
+twice with identical output, and stderr was empty.
+
+| File | Settings | Lines | sha256 |
+|------|----------|-------|--------|
+| `modes1_padded_raw_nofix.txt` | `--raw --no-fix` | 283 | `0f61b245392c5a2ca18e2432f259c350d085e017251f8c1cd0bf7d27b2b1615a` |
+| `modes1_padded_raw_default.txt` | `--raw` | 284 | `8a818841287dc988d1f2d864c09715f34d7a3a10b7043a83e767617805040714` |
+| `modes1_padded_decoded_nofix.txt` | `--no-fix` | 3,178 | `d3d2f7a237ac753860782a812754ed2dcd0867afd296a9ce525c43cc57ea8a9d` |
+| `modes1_padded_decoded_default.txt` | (defaults) | 3,202 | `177d89866fb5cd3a58f95132738408e74ffc41b84c27470b106eec9c65015256` |
+
+The first 217 raw lines of each padded file equal the approved raw file exactly. The rest (66 no-fix, 67 default)
+are the tail.
+
+## Start-sample fixture
+
+`modes1_starts.txt` lists each no-fix golden line's start sample in `modes1.bin`, flagged `exact` (plain bit
+comparison reproduces the golden hex there: 194 lines) or `approximate` (23 lines). It's built by
+`scripts/dump1090_prefix_search.sh nofix all > data/modes1_prefix_nofix.txt` (WSL) and then
+`python scripts/make_start_fixture.py` (decision #11). Only tests and scripts read it, never `src/decoder/`.
+
+`modes1_tail_starts_nofix.txt` (66 lines: 62 exact, 4 approximate) and `modes1_tail_starts_default.txt` (67 lines: 62 exact,
+5 approximate) do the same for the tail lines of the padded golden files (decision #13), so tail matching is by start sample too.
+In WSL: `bash scripts/dump1090_prefix_search.sh padded_nofix tail > data/modes1_prefix_padded_nofix.txt` (likewise for `padded_default`),
+then in PowerShell:
+`python scripts/make_start_fixture.py --prefix data/modes1_prefix_padded_nofix.txt --out tests/golden/modes1_tail_starts_nofix.txt`.
+The tail is a holdout: nothing in the decoder is tuned on it.
+
 ## What error correction changes (default vs no-fix)
 
 Both settings produce the **same 217 messages**. Error correction adds no messages on this

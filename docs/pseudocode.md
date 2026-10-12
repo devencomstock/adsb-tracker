@@ -121,6 +121,8 @@ My check tests those neighbors too (offsets 1, 3, 6, 8, 10 and 15), so it **may 
 keeps**. That's the first suspect for any missing messages in Phase 4. The likely fix is to stop testing pulse-adjacent
 samples, for the physical reason above. Where the two disagree, the result shows up as missing or extra messages,
 and decision #8 says how those get explained.
+**Phase 4 outcome:** the decoder now uses that looser, pulse-neighbour test (decision #14; `docs/decoder-notes.md` stage 2).
+It recovered one preamble (golden line 193) and no other misses.
 `SIGNAL_FLOOR` is an open parameter: the first try is a few times the median magnitude (3.0 on this file), measured
 in Phase 4 rather than guessed here. Candidates may overlap, and stage 3 decides which are real.
 
@@ -429,6 +431,234 @@ They belong to a later tracking step. dump1090's single-message output also prin
 - Why the raw hex is the most robust thing to compare.
 - Which fields can be decoded from one message and which need state (CPR).
 - The Q bit.
+
+---
+
+## Stage 3c (proposed, step a1): CRC-assisted soft-decision bit flipping
+
+*Status: design accepted with the edits below; **not built yet**. K = 10 and m = 3 are provisional, to be re-sized
+after step a2 (stage 3d), because a2 changes which errors remain.* Accepted edits:
+- It runs **with fix on only** (option i below).
+- It runs only on frames `accept()` would otherwise reject: after single-bit repair, and after the interrogator-ID rule.
+- There's no DF-field exception. Lines 128 and 212 stay documented misses.
+
+This is a response to the 23 no-fix misses at checkpoint B
+(`docs/phase4-golden-report.md`). Every number below was measured on the **first 217 golden lines only**. The 66/67
+tail lines (decision #13) are a holdout and weren't used.
+
+**Idea.** Stage 3 makes a hard 1/0 decision for each bit, but some decisions are close. When a frame fails its CRC,
+the bits most likely to be wrong are the ones whose two halves were nearly equal. So try flipping a few of those bits
+and keep a result only if the CRC then passes. The CRC acts as the referee; the confidence decides what to try first.
+
+**Input:** `mag[]`, a start sample `j`, the hard bits from stage 3 (already cut to the DF's length), the recently-seen
+list, and time `t`. **Output:** an accepted, corrected frame, or "rejected".
+
+```
+only with fix on, and only for frames accept() rejected (after single-bit repair and after the
+    interrogator-ID rule) whose DF (as read) is 11, 17 or 18
+for each bit k from 5 to n-1:                          # never bits 0-4, the DF (decision #9)
+    confidence[k] = |mag[j+16+2k] - mag[j+17+2k]|      # how clearly the two halves differ
+weak = the K bits with the lowest confidence           # K = 10
+try flip sets in this order: every single bit in weak, then every pair, then every triple
+    (m = 3 at most; ties broken by smaller total confidence first)
+    -> at most C(10,1) + C(10,2) + C(10,3) = 175 candidates per frame
+for each candidate:
+    if crc_remainder(candidate) != 0: continue         # remainder must be exactly 0:
+                                                       # no interrogator-ID reading for a flipped frame
+    icao = candidate bits 8-31
+    if not recent.seen(icao, t): continue              # only aircraft that already proved themselves
+    collect candidate
+if exactly one candidate was collected: accept it (how = "soft decision", flipped bits recorded);
+    it does NOT add its address to the recently-seen list (like a repaired frame)
+else: reject                                           # none, or ambiguous: two corrections both pass
+```
+
+**What it can recover on the first 217 lines.** For each miss, I ranked its wrong bits among bits 5 onward from least
+to most confident at the fixture start. Absolute and relative (`|a-b|/(a+b)`) confidence gave the same ranking.
+
+| K (weakest bits) | m (max flips) | Candidates per frame | Recoverable no-fix misses |
+|---|---|---|---|
+| 8 | 2 | 36 | 3: 185, 188, 193 |
+| 8 | 3 | 92 | 4: + 112 |
+| **10** | **3** | **175** | **5: 71, 112, 185, 188, 193** |
+| 10 | 4 | 385 | 6: + 209 |
+| 16 | 4 | 2,516 | 6 (no further gain) |
+
+I'm proposing **K = 10, m = 3**. Going to m = 4 recovers one more line at 2.2 times the candidates. The other 18 misses are out of reach of
+flipping:
+- 9 of them (27, 52, 69, 128, 156, 174, 178, 207, 212) have a wrong bit inside the DF field, so they're read as a
+  different DF and never reach this step.
+- The other 9 (35, 49, 75, 78, 80, 84, 111, 157, 209) have 4 to 14 wrong bits, some of them outside the 10 least-confident.
+
+**Expected result, per mode** (predictions from bits at the fixture starts, not a measured run):
+- **no-fix: stays at 23.** This step doesn't run with fix off.
+- **default: 20 → about 18.** Of the 5 recoverable lines, 185, 188 and 193 are already recovered there by ordinary single-bit
+  repair, so the new ones are 71 and 112.
+
+Either way that's still above 10, which is why step a2 (stage 3d) exists.
+
+**False accepts.** A wrong candidate passes the CRC by chance with probability about 2^-24 ≈ 6 × 10^-8. On the first
+262,144 samples, the pipeline produces **17** CRC-failing DF 11/17/18 frames, so at 175 candidates each:
+17 × 175 × 2^-24 ≈ **1.8 × 10^-4 expected false accepts** for this part of the recording (1 in about 5,600 runs).
+- **Two things make it smaller:** the recently-seen check, and rejecting the frame when two different corrections both pass.
+- **Two things make it unsafe to scale up:**
+  - The flips leave the address bits mostly untouched, so the recently-seen check is *not* an independent factor I can multiply in.
+  - Live traffic has many aircraft and far more failing frames. Count failing frames per second on my own recordings
+    before trusting this rate.
+- **For comparison:** dump1090's interrogator-ID rule accepts any remainder below 80. That's 80 times more permissive per frame, which is why flipped
+  DF 11 frames here must reach remainder exactly 0.
+
+**The DF field (line 212) and decision #9.** I propose this step **does not flip bits 0-4**, consistent with decision #9.
+A wrong DF bit also means a wrong length. Line 212's frame (true DF 17) reads as DF 25, gets cut to 56 bits, and never
+reaches this step. Allowing it would mean a different design: re-read the frame under each "DF one flip away from
+11/17/18" hypothesis at that DF's length, then run the CRC. That would be a DF-specific exception to decision #9, so it needs
+its own decision. Cost of not doing it: line 212 and line 128 (which also has a wrong DF bit) stay as misses.
+
+**An open question for you: `--no-fix`.** In dump1090, `--no-fix` turns off CRC-based correction. Its no-fix golden file
+still contains frames it recovered by *re-demodulating* (phase correction), but none recovered by flipping bits until the
+CRC passes. This step is CRC-based correction, so:
+- **(i)** if it runs only with fix on, the no-fix miss count doesn't move (23), and only default improves;
+- **(ii)** if it also runs under `--no-fix`, our "no-fix" means something different from dump1090's.
+
+I lean towards (i). It keeps `--no-fix` honest, and leaves the no-fix target to (a2), which is a demodulation change and so fits.
+
+**Golden check:**
+- Bit-level: no-fix golden lines and default golden lines must pass through unchanged, because they're already clean.
+- Unit tests:
+  - a golden frame with 1, 2 or 3 of its weakest bits inverted is recovered;
+  - a frame with an unlisted address is not;
+  - an ambiguous double pass is rejected;
+  - bits 0-4 are never flipped.
+- Whole file: re-run `scripts/compare_golden.py` in both modes, still with **0 extras** inside the decoded region. Report
+  the holdout tail separately.
+
+**Interview points:**
+- Soft versus hard decisions.
+- Why the CRC can referee a guess.
+- Why the number of guesses directly scales the false-accept rate.
+- Why "exactly one passing correction" matters.
+
+---
+
+## Stage 3d (proposed, step a2): sub-sample timing re-read
+
+*Status: approved for building (2026-10-12), with the per-mode false-accept bound, the recently-seen note and the
+known-extras file added below.* Our own design. The linear-interpolation diagnostic from checkpoint B is
+not this design. All numbers come from a throwaway prototype (outside the repo, not decoder code) run on the
+**first 262,144 samples and scored against the first 217 golden lines only**. The tail is a holdout and wasn't run.
+They're **predictions** until the step is built and `scripts/compare_golden.py` measures it.
+
+**Idea.** Sample instants are 0.5 µs apart, and a pulse is 0.5 µs long. If a message's pulses arrive a fraction `d` of a
+sample late, each pulse puts about `1 - |d|` of its energy in its own sample and `|d|` in the next one (or the previous one if
+early). Stage 3's "first half louder than second half" then compares the wrong things for every bit. The preamble is a
+known pattern, so it tells us `d`. Re-read the bits with windows that follow the pulse instead of the sample grid.
+
+**Input:** `mag[]`, a candidate start `j` whose plain read was rejected by `accept()`, the recently-seen list, and time
+`t`. **Output:** an accepted frame, or "rejected".
+
+```
+only on candidates whose plain read (stage 3) accept() rejected: any DF, both modes
+estimate the offset d (fraction of a sample; + = late) from the preamble's spill-over:
+    peak  = mean(mag[j], mag[j+2], mag[j+7], mag[j+9])        # the four pulses
+    late  = mean(mag[j+3], mag[j+10])    # just AFTER pulses 2 and 9; quiet unless pulses are late
+    early = mean(mag[j-1], mag[j+6])     # just BEFORE pulses 0 and 7; quiet unless pulses are early
+    d_est = (late - early) / (peak + late + early)              # about -0.5 .. +0.5
+hypotheses = [d_est] + [+0.25, -0.25, +0.5, -0.5] ordered by distance from d_est    # H = 5
+for d in hypotheses:                                            # first one that passes wins
+    w = |d|;  s = +1 if d >= 0 else -1     # spill goes to the next sample if late, previous if early
+    for each bit k from 0 to 111:
+        x = j + 16 + 2k
+        first  = (1 - w) * mag[x]     + w * mag[x + s]          # energy of a pulse in the first half
+        second = (1 - w) * mag[x + 1] + w * mag[x + 1 + s]      # energy of a pulse in the second half
+        bit k = first > second
+    frame = those bits, cut to the length their DF calls for
+    result = accept(frame, recent, t, fix)                      # exactly the rules of a plain read
+    if result: return result  (how = "timing re-read", d recorded)
+return rejected
+```
+
+**Why `d_est` works.** The samples used for `late` and `early` are next to exactly one pulse each and are otherwise quiet. A
+pulse arriving `d` late puts `d·P` into `late`, 0 into `early` and `(1 - d)·P` into `peak`, so the formula gives back `d`. An
+early pulse gives the mirror image. On the first 217 lines, `d_est` is +0.36 to +0.42 for the many-bit misses (27, 52, 69, 156,
+178), −0.33 for line 207, and −0.15 to +0.29 for a sample of lines plain comparison reads correctly.
+
+**Why the checkpoint B diagnostic made line 185 worse.** It used `d = ±0.5`, which gives equal weights. Then
+`first > second` reduces to `mag[x] > mag[x+2]`: the middle sample cancels out, and the bit is compared against a sample that belongs to the *next* bit.
+That's right only if the offset really is half a sample. Line 185's estimate is +0.29, so most of each pulse is still in
+its own sample, and throwing that sample away corrupts bits that were fine. Weighting by the *estimated* offset keeps the
+dominant sample dominant.
+
+**DF bits.** A re-read is a fresh demodulation, not a repair. If it reads different DF bits, the frame is cut at that DF's
+length and checked from scratch, so type and length always agree. That's the problem decision #9 guards against for repair, and
+it doesn't arise here. This is how line 212 (DF field only) is recovered.
+
+**The recently-seen list.** A re-read frame that passes with remainder 0 adds its address, like any clean frame. dump1090
+also lists addresses from frames recovered by its phase-correction retry. Repaired frames still don't add theirs.
+**Risk:** a *falsely* accepted re-read frame would poison the list. Its address would then let DF 0/4/5/20/21 and DF 11
+interrogator-ID frames through for 60 seconds. We match dump1090 for now and revisit this with live data in Phase 5.
+
+**Predicted effect on the first 217 lines** (prototype, `H = 5`, first passing hypothesis wins):
+
+| Miss class (no-fix) | Count | Recovered | Still missing |
+|---|---|---|---|
+| Preamble miss | 1 | 0 | 174 (a2 only runs where there's a candidate) |
+| DF field only | 1 | 1 | – |
+| Few wrong bits (1-5) | 8 | 7 | 128 (see below) |
+| 6-19 wrong bits | 7 | 7 | – |
+| Many wrong bits (20+) | 6 | 4 | 156, 178 |
+
+- **no-fix: 23 → 4 missing** (128, 156, 174, 178).
+- **default: 20 → 1 missing** (174). In default mode, 156 and 178 come out of the re-read one bit off and are then fixed by
+  ordinary repair. Line 128 matches, because the default golden line is `…a6`.
+- **Line 128 in no-fix.** The re-read gives `5d4d20237a55a6` (remainder 0). dump1090's no-fix run read `…a7` (interrogator ID 1).
+  It's the same transmission and the bit-55 ambiguity from stage 4c. It counts as **1 miss plus 1 extra** in no-fix.
+
+**Extra messages it produces inside the region dump1090 decoded.** These are 3 in both modes, plus line 128's other reading in no-fix:
+
+| Start | Frame | Why it passes | Why dump1090 doesn't output it |
+|---|---|---|---|
+| 43,313 | DF 0 `02e60eba41a90a` | address parity → `4d2023` (listed) | its preamble test passes; its own bit reading evidently fails |
+| 52,744 | DF 11 `5f4d20232daf00` | remainder 0 | fails its "sample 6 below pulse 0" preamble condition |
+| 129,115 | DF 11 `5d4d20237a55a6` | remainder 0 | fails its "sample 6 below pulse 0" preamble condition |
+
+- **They look like real transmissions dump1090 missed.** All three have strong pulses (34 to 81 against a noise median of 3). The two DF 11 frames fail the same dump1090 condition as the tail extra
+  at 314,791 (decision #14).
+- **Known-extras file.** Decision #8 (revised) allows only *explained* extras, so these go in `tests/golden/known_extras.txt`
+  (start, hex, mode, reason), together with line 128's other no-fix reading. The golden test fails on any extra inside the decoded
+  region that isn't listed there, or that doesn't meet decision #8's criteria.
+
+**False accepts.** Each hypothesis is one acceptance trial. In the first 262,144 samples the prototype made **52** trials
+(no-fix) and **41** (default). Each trial goes through the same `accept()`, so the bound depends on the mode. L is the number
+of listed addresses (1 here).
+
+| Mode | Remainders that a wrong frame could land on and be accepted | Per trial | Expected false accepts |
+|---|---|---|---|
+| no-fix | remainder 0 (1); DF 11 interrogator ID below 80 for a listed address (80); address parity to a listed address (L) | about (1 + 80 + L) × 2^-24 ≈ 4.9 × 10^-6 | 52 trials ≈ **2.5 × 10^-4** |
+| default | as no-fix, plus every one-bit repair, **which needs no listed address**: 107 repairable positions in a 112-bit frame (up to 51 in a 56-bit frame) | about (1 + 107 + 80 + L) × 2^-24 ≈ 1.1 × 10^-5 | 41 trials ≈ **4.6 × 10^-4** |
+- **Trying all 5 hypotheses and rejecting conflicts** found no conflicts on these lines, but costs about 2.7 times the trials (140). So
+  first-pass is proposed.
+- **Live caveat:** as with a1, live traffic multiplies the rejected candidates and the listed addresses (L), so the rate must be
+  measured on my own recordings.
+
+**Composition with a1.** a2 runs first, on every rejected candidate. a1 (fix on only) then runs on what is still rejected.
+**On the first 217 lines a1 adds nothing after a2**: default stays at 1 missing (174, a preamble miss that a1 can't reach). On
+its own, a1 produced 2 of the same 3 extras. Re-sized after a2, a1 has no measured benefit on this recording, so I'd defer building
+it until a recording shows a need.
+
+**Golden check once built:**
+- **Bit-level:** golden lines pass through unchanged.
+- **Unit tests:**
+  - a synthetic frame shifted by a known fraction of a sample gets `d_est` within ±0.1 and decodes;
+  - `d = 0` reproduces the plain read exactly;
+  - a frame with no valid hypothesis is rejected.
+- **Whole file:** `scripts/compare_golden.py` in both modes, with the extras listed with this evidence, and the holdout tail
+  reported separately and untuned.
+
+**Interview points:**
+- What sampling phase is, and why a 2 MHz receiver sees it for 0.5 µs pulses.
+- How a known preamble calibrates the receiver.
+- Why a fixed half-sample shift hurts (inter-symbol interference).
+- Why every extra guess has a false-accept cost.
 
 ---
 

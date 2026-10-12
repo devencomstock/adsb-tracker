@@ -64,9 +64,9 @@ and the language decision is approved.
 
 ## Phase 4: Build the decoder (weeks 2-3)
 
-- [ ] Implement each stage as one small, tested function under `src/decoder/` (no pyModeS imports, no dump1090 code)
-- [ ] Golden comparison against dump1090 on `modes1.bin`, with the diff shown in the PR
-- [ ] Buy the RTL-SDR dongle (about $35-45), but only once the decoder matches
+- [x] Implement each stage as one small, tested function under `src/decoder/` (no pyModeS imports, no dump1090 code)
+- [x] Golden comparison against dump1090 on `modes1.bin`, with the diff shown in the PR (`docs/phase4-golden-report.md`)
+- [ ] Buy the RTL-SDR dongle (about $35-45), but only once the decoder matches (decision #8 conditions are met; your call)
 - [ ] Record my own samples over West Lafayette (kept in `data/`)
 
 **Definition of done:** the decoder's output on `modes1.bin` matches dump1090 per the golden diff
@@ -79,6 +79,15 @@ and the language decision is approved.
 - [ ] Verify OpenSky/adsb.lol coverage of KLAF traffic
 - [ ] Ingest public feed data (OpenSky / adsb.lol), within their documented rate limits
 - [ ] Join in the FAA registry
+
+Decoder follow-ups from Phase 4 (before live use):
+- [ ] Gillham (Q = 0) altitude decoding, with test vectors from the Riddle if it has them. Tests already confirm that Q = 0
+      returns `None` without raising, for both the ADS-B and the DF 0/4/20 altitudes.
+- [ ] Surface position (TC 5-8) and on-ground status, so the Phase 6 rules don't flag taxiing aircraft
+- [ ] On my own live recordings, measure:
+  - the rejected-candidate rate;
+  - the false-accept rate (timing re-read and repair);
+  - the early-arrival observation (`docs/decoder-notes.md` stage 3).
 
 **Definition of done:** the database holds live or recorded positions for aircraft near KLAF,
 each joined to its FAA registry data (type, owner) where available.
