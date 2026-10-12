@@ -14,24 +14,32 @@ from __future__ import annotations
 
 import argparse
 import re
+import subprocess
 import sys
 from collections import Counter
 from pathlib import Path
-
-import numpy as np
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "src"))
 
 from decoder.accept import How, accept  # noqa: E402
 from decoder.bits import read_bits, to_frame  # noqa: E402
+from decoder.crc import repair_single_bit  # noqa: E402
+from decoder.frame import Frame  # noqa: E402
 from decoder.pipeline import SIGNAL_FLOOR, Message, decode_magnitudes  # noqa: E402
-from decoder.preamble import DATA_OFFSET, find_candidates  # noqa: E402
+from decoder.preamble import (  # noqa: E402
+    DATA_OFFSET,
+    FAR_QUIET,
+    FAR_QUIET_LIMIT,
+    PULSE_NEIGHBOURS,
+    PULSES,
+    find_candidates,
+)
 from decoder.recent import RecentlySeen  # noqa: E402
 from decoder.samples import load_iq, magnitude  # noqa: E402
+from decoder.timing import hypotheses, offset_estimate, reread_bits  # noqa: E402
 
 GOLDEN = REPO / "tests" / "golden"
-EXPECTED_NOFIX_MISSES = {112, 185, 188, 193}  # decision #8
 MATCH_WINDOW = 16  # samples between a golden line's fixture start and our start
 # dump1090 at efe64db decodes the file in 262,144-byte buffers and stops before decoding the last,
 # partial one: the reader sets Modes.exit at end of file (dump1090.c 496-498) and the decode loop
@@ -113,6 +121,55 @@ def why_missing(
     return f"{note}; our bits there: {frame.hex}; accept(): {verdict}"
 
 
+def our_preamble_failures(mag, j: int) -> str:
+    """Which parts of our own preamble test (decision #14) fail at start j."""
+    shape = [f"pulse {p} > sample {q}" for p, q in PULSE_NEIGHBOURS if not mag[j + p] > mag[j + q]]
+    mean = sum(mag[j + k] for k in PULSES) / len(PULSES)
+    gaps = [f"sample {q}" for q in FAR_QUIET if not mag[j + q] < FAR_QUIET_LIMIT * mean]
+    weakest = min(mag[j + k] for k in PULSES)
+    parts = []
+    if shape:
+        parts.append("shape fails: " + ", ".join(shape))
+    if gaps:
+        parts.append("too loud away from pulses: " + ", ".join(gaps))
+    if weakest < SIGNAL_FLOOR:
+        parts.append(f"weakest pulse {weakest:.1f} below the floor")
+    return "; ".join(parts) or "passes"
+
+
+def explain_miss(
+    mag, golden_hex: str, start: int, messages: list[Message], candidates: set[int], fix: bool
+) -> str:
+    """A plain-English reason a golden line is missing, derived from the evidence."""
+    for m in messages:
+        if abs(m.start - start) <= MATCH_WINDOW and len(m.accepted.frame.hex) == len(golden_hex):
+            diff = m.accepted.frame.value ^ Frame.from_hex(golden_hex).value
+            bits = [
+                k
+                for k in range(m.accepted.frame.n_bits)
+                if (diff >> (m.accepted.frame.n_bits - 1 - k)) & 1
+            ]
+            return (
+                f"same transmission read differently: our message at {m.start} differs in bit(s) "
+                f"{bits} (stage 4c bit-55 ambiguity if bit 55 of a DF 11)"
+            )
+    if not any(j in candidates for j in range(start - 3, start + 4)):
+        failures = our_preamble_failures(mag, start)
+        return f"preamble miss: no candidate within 3 samples; at {start} our test: {failures}"
+    for offset in hypotheses(offset_estimate(mag, start)):
+        frame = to_frame(reread_bits(mag, start, offset))
+        if frame.hex == golden_hex:
+            return f"timing re-read at {offset:+.2f} reads it, but another candidate came first"
+        repaired = repair_single_bit(frame)
+        if repaired is not None and repaired[0].hex == golden_hex:
+            note = "no-fix mode doesn't repair" if not fix else "repair should have taken it"
+            return (
+                f"timing re-read at {offset:+.2f} leaves exactly one wrong bit "
+                f"(bit {repaired[1]}); single-bit repair would fix it, but {note}"
+            )
+    return "not explained automatically; see the evidence"
+
+
 def miss_class(start: int, flag: str, bad_bits: str, candidates: set[int]) -> str:
     """Sort a miss by where it fails: preamble, or how many bits plain comparison gets wrong."""
     if start not in candidates:
@@ -127,21 +184,6 @@ def miss_class(start: int, flag: str, bad_bits: str, candidates: set[int]) -> st
     if len(wrong) < 20:
         return "6-19 wrong bits"
     return "many wrong bits (20+)"
-
-
-def half_sample_wrong_bits(mag, start: int, golden_hex: str) -> int:
-    """Diagnostic only: fewest wrong bits when every half-bit is read half a sample earlier or
-    later (linear interpolation between neighbouring samples), for starts within 3 samples."""
-    n = len(golden_hex) * 4
-    want = np.array([c == "1" for c in bin(int(golden_hex, 16))[2:].zfill(n)])
-    best = n
-    for s in range(start - 3, start + 4):
-        x = s + DATA_OFFSET + 2 * np.arange(n)
-        for shift in (-1, 1):  # half a sample earlier or later
-            first = (mag[x] + mag[x + shift]) / 2
-            second = (mag[x + 1] + mag[x + 1 + shift]) / 2
-            best = min(best, int(((first > second) != want).sum()))
-    return best
 
 
 def overlapping_golden(start: int, starts) -> str:
@@ -233,17 +275,17 @@ def compare(mode: str, mag, starts) -> tuple[str, dict[str, int]]:
     classes = Counter(miss_class(*starts[line], candidates) for line in missing)
     out = [f"## {mode}", ""] + [f"- {k.replace('_', ' ')}: **{v}**" for k, v in counts.items()]
     out += ["", "Missing by class: " + ", ".join(f"{k}: {v}" for k, v in sorted(classes.items()))]
-    out += ["", "### Missing (golden line: class; evidence)", ""]
+    out += ["", "### Missing (golden line: class; explanation; evidence)", ""]
+    explained = 0
     for line in missing:
-        expected = " (expected, decision #8)" if not fix and line in EXPECTED_NOFIX_MISSES else ""
         why = why_missing(mag, line, golden[line], starts, candidates, messages, fix)
-        half = half_sample_wrong_bits(mag, starts[line][0], golden[line])
         cls = miss_class(*starts[line], candidates)
-        out.append(
-            f"- line {line} `{golden[line]}`{expected}: **{cls}**; {why}; "
-            f"diagnostic: reading half a sample off gives {half} wrong bits"
-        )
+        reason = explain_miss(mag, golden[line], starts[line][0], messages, candidates, fix)
+        explained += not reason.startswith("not explained")
+        out.append(f"- line {line} `{golden[line]}`: **{cls}**. **Explanation:** {reason}.")
+        out.append(f"  - Evidence for the plain read: {why}")
     counts["missing_by_class"] = dict(classes)
+    counts["missing_explained"] = explained
     out += ["", "### Extra inside the region dump1090 decoded (our start: evidence)", ""]
     unexplained = 0
     for i in inside:
@@ -313,23 +355,100 @@ def main() -> None:
     args = parser.parse_args()
     mag = magnitude(load_iq(REPO / "data" / "modes1.bin"))
     starts = fixture()
-    sections = []
+    sections, all_counts = [], {}
     for mode in ("nofix", "default"):
         text, counts = compare(mode, mag, starts)
         print(mode, counts)
         sections.append(text)
+        all_counts[mode] = counts
     if args.report:
-        header = (
-            "# Phase 4 golden comparison\n\nGenerated by `scripts/compare_golden.py`.\n\n"
+        level1 = run_level1_tests()
+        speed = speed_section()
+        header = [
+            "# Phase 4 golden comparison",
+            "",
+            "Generated by `scripts/compare_golden.py --report docs/phase4-golden-report.md`.",
+            "The approved golden files cover samples 0-262,143 of `modes1.bin` (decision #13).",
+            "The tail after that is a holdout, reported per mode below and never tuned on.",
+            "",
+            decision8_status(all_counts, level1),
+            "",
+            speed,
+            "",
             "**Observation (not proven):** every extra found by the timing re-read arrives *early* "
             "(offset about -0.3 to -0.4 of a sample), and most extras fail dump1090's preamble "
             'condition "sample 6 below pulse 0". Early arrival spills pulse 7 into sample 6, '
             "so this looks like a systematic dump1090 blind spot for early-arriving frames. "
             "Six frames from one aircraft can't prove it; see `docs/decoder-notes.md` stage 3 and "
-            "`tests/golden/known_extras_tail.txt`.\n\n"
+            "`tests/golden/known_extras_tail.txt`.",
+            "",
+        ]
+        args.report.write_text(
+            "\n".join(header) + "\n" + "\n".join(sections), encoding="utf-8", newline="\n"
         )
-        args.report.write_text(header + "\n".join(sections), encoding="utf-8", newline="\n")
         print("wrote", args.report)
+
+
+def run_level1_tests() -> str:
+    """Decision #8 level 1 (bit-level stages on the golden hex) is checked by these tests."""
+    files = ["tests/test_golden_bitlevel.py", "tests/test_golden_fields.py"]
+    result = subprocess.run(
+        [sys.executable, "-m", "pytest", "-q", *files],
+        cwd=REPO,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    summary = result.stdout.strip().splitlines()[-1] if result.stdout.strip() else "no output"
+    return f"`pytest {' '.join(files)}`: {summary}"
+
+
+def decision8_status(counts: dict[str, dict], level1: str) -> str:
+    """Decision #8 (revised) dongle conditions, per mode."""
+    rows = ["## Decision #8 dongle conditions", ""]
+    rows += [f"- **Level 1, bit-level stages 100% on the golden hex:** {level1}"]
+    for mode, c in counts.items():
+        ok_missing = c["missing"] <= 10
+        ok_explained = c["missing_explained"] == c["missing"]
+        ok_extras = c["extra_unexplained_inside_decoded_region"] == 0
+
+        def met(ok: bool) -> str:
+            return "met" if ok else "NOT met"
+
+        rows.append(
+            f"- **{mode}:** missing {c['missing']} (limit 10: {met(ok_missing)}); "
+            f"misses explained {c['missing_explained']}/{c['missing']} ({met(ok_explained)}); "
+            f"unexplained extras inside the decoded region "
+            f"{c['extra_unexplained_inside_decoded_region']} ({met(ok_extras)}); "
+            f"holdout tail: {c['tail_matched']}/{c['tail_padded_golden']} matched, "
+            f"{c['tail_extra']} extra (reported only)"
+        )
+    rows.append("- **Speed measurement reported:** yes, see below.")
+    return "\n".join(rows)
+
+
+def speed_section() -> str:
+    """End-to-end speed and a per-stage breakdown (scripts/measure_speed.py)."""
+    from measure_speed import RECORDING, best_time, stage_breakdown
+
+    samples = load_iq(RECORDING).size // 2
+    rows = ["## Speed", "", f"`modes1.bin`: {samples:,} samples = {samples / 2e6:.3f} s of radio."]
+    rows += ["", "| Mode | Timing re-read | Best of 10 | Real-time factor |", "|---|---|---|---|"]
+    for fix in (False, True):
+        for reread in (False, True):
+            seconds, _count = best_time(fix, reread)
+            rows.append(
+                f"| {'default' if fix else 'no-fix'} | {'on' if reread else 'off'} | "
+                f"{seconds * 1000:.1f} ms | {samples / seconds / 2e6:.1f}x |"
+            )
+    rows += ["", "Per stage, default mode with the re-read on (best of 10):", ""]
+    rows += [f"- {name}: {ms:.1f} ms" for name, ms in stage_breakdown().items()]
+    rows += [
+        "",
+        "Caveat: one strong aircraft. Live traffic has many more candidates, and the decode loop",
+        "(Python, per candidate) grows with them; measure on my own recordings (ROADMAP Phase 5).",
+    ]
+    return "\n".join(rows)
 
 
 if __name__ == "__main__":
