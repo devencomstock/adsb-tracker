@@ -41,10 +41,11 @@ DF, CA, ICAO, ME and PI, and how the type code picks the ME layout.
 
 ## Phase 2: Get test data (days 2-4)
 
-- [ ] Build antirez's dump1090 in WSL (C toolchain + librtlsdr headers)
-- [ ] Run it on `testfiles/modes1.bin` and save the output as the answer key (in `data/`; commit only a tiny fixture to `tests/golden/`)
-- [ ] Write down the file's sample format in plain words in `docs/decoder-notes.md`
-- [ ] Log in `docs/decisions.md` how the golden output is produced and compared
+- [x] Build antirez's dump1090 in WSL (C toolchain + librtlsdr headers)
+- [x] Run it on `testfiles/modes1.bin` and save the output as the answer key in `tests/golden/`
+      (small enough to commit; `modes1.bin` itself stays in `data/`), default and `--no-fix` runs
+- [x] Write down the file's sample format in plain words in `docs/decoder-notes.md`
+- [x] Log in `docs/decisions.md` how the golden output is produced and compared (#4, #5)
 
 **Definition of done:** a reproducible command produces the dump1090 answer key from `modes1.bin`,
 and the sample format (sample rate, I/Q layout, byte encoding) is documented with a cited source.
