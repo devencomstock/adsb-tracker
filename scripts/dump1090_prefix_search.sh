@@ -12,6 +12,7 @@
 #
 # Run in WSL, from anywhere (needs ~/src/dump1090 built at the pinned commit, see tests/golden/README.md):
 #   bash scripts/dump1090_prefix_search.sh nofix 0 112 128 174 185 188 193
+#   bash scripts/dump1090_prefix_search.sh nofix all > data/modes1_prefix_nofix.txt   (every line)
 set -u
 MODE=$1
 shift
@@ -30,8 +31,19 @@ ok_for() {  # $1 = prefix bytes, $2 = K: do the first K+1 output lines match the
   [ "$want" = "$got" ]
 }
 
+if [ "${1:-}" = all ]; then
+  # Every golden line, in order. Line K can't need a shorter prefix than line K-1, so each
+  # search starts from the previous answer.
+  set -- $(seq 0 $(($(wc -l < "$GOLD") - 1)))
+  INCREMENTAL=1
+else
+  INCREMENTAL=0
+fi
+
+prev=0
 for K in "$@"; do
   lo=0
+  [ "$INCREMENTAL" = 1 ] && lo=$((prev > 2 ? prev - 2 : 0))
   hi=$SIZE
   while [ $((hi - lo)) -gt 2 ]; do
     mid=$(((lo + hi) / 4 * 2))
@@ -42,4 +54,5 @@ for K in "$@"; do
   hex=${hex%;}
   bits=$((${#hex} * 4))
   echo "$MODE line=$K shortest_prefix_samples=$((hi / 2)) start_estimate=$((hi / 2 - 16 - 2 * bits)) $line"
+  prev=$hi
 done

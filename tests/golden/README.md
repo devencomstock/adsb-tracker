@@ -80,6 +80,21 @@ appears under `/mnt/c/...`):
 bash scripts/dump1090_prefix_search.sh nofix 0 112 128 174 185 188 193
 ```
 
+## dump1090 skips the end of the recording
+
+The golden files cover only **the first 524,288 bytes (samples 0-262,143)** of `modes1.bin`. dump1090 reads files in
+262,144-byte buffers. At end of file its reader thread sets `Modes.exit` (`dump1090.c` 496-498), and the decode loop
+checks that flag straight after decoding the previous buffer (2986-2989), so the last, partial buffer is never decoded.
+Check: padding `modes1.bin` with byte 127 (zero signal) up to 786,432 bytes makes the same dump1090 output 283 messages
+instead of 217. The last golden line starts at sample 261,513.
+
+## Start-sample fixture
+
+`modes1_starts.txt` lists each no-fix golden line's start sample in `modes1.bin`, flagged `exact` (plain bit
+comparison reproduces the golden hex there: 194 lines) or `approximate` (23 lines). It's built by
+`scripts/dump1090_prefix_search.sh nofix all > data/modes1_prefix_nofix.txt` (WSL) and then
+`python scripts/make_start_fixture.py` (decision #11). Only tests and scripts read it, never `src/decoder/`.
+
 ## What error correction changes (default vs no-fix)
 
 Both settings produce the **same 217 messages**. Error correction adds no messages on this
