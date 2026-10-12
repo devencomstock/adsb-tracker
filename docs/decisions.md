@@ -402,3 +402,39 @@ One entry per real choice. Status is **Draft** until approved, then **Approved**
     (ROADMAP Phase 5 live measurements).
 - **Alternatives:** count only "any aircraft within 10 NM" (dominated by airliners at cruise, so it says nothing about training
   traffic); compare against a list of Purdue-registered aircraft (needs checkpoint E first; planned as a later cross-check).
+
+## #20: Database schema and units (checkpoint A)
+
+- **Date:** 2026-10-12
+- **Status:** Draft, pending approval
+- **Decision:** `db/migrations/0001_init.sql` defines:
+  - **`aircraft`:** one row per ICAO address (`icao24` text, the primary key: 6 lowercase hex digits), plus `first_seen` and
+    `last_seen`.
+  - **`positions`:** one row per position fix, from my decoder or from adsb.lol. Its columns are `source`, `icao24`,
+    `observed_at`, `geom` (`geometry(Point, 4326)`), altitude, ground speed, track, vertical rate, on-ground flag, squawk and
+    callsign.
+  - **`UNIQUE (source, icao24, observed_at)`:** ingest can use `ON CONFLICT DO NOTHING`, so overlapping polls don't create
+    duplicates. `observed_at` is the source's own position time, not the poll time.
+  - **`CHECK (source IN ('decoder', 'adsblol'))`:** OpenSky data can't be stored even by mistake (decision #18).
+  - **Indexes:** a GiST index on `geom` (what's near a point), and a btree on `(icao24, observed_at)` (one aircraft's recent
+    track).
+  - **Units:** feet (MSL, barometric), knots, feet per minute, and degrees true for track. Every column carries a
+    `COMMENT` stating its unit. Feeds in other units are converted at ingest, never in the schema.
+  - **Migrations:** applied by `src/ingest/migrate.py`, one transaction per file, recorded in `schema_migrations`. Running it
+    twice changes nothing.
+  - **Image:** pinned to `postgis/postgis:16-3.5@sha256:94146ac3…`. `16-3.5` is the maintained PostgreSQL 16 tag; `16-3.4`
+    hasn't been rebuilt since 2024-10. It's bound to 127.0.0.1, has a named volume, and is capped at 1 GB.
+- **Alternatives:**
+  - `geography(Point)` instead of `geometry`. That gives distances in metres natively, but the planar functions Phase 6 may
+    want (bounding boxes, simple map clipping) work on `geometry`. Distance queries cast to `geography`
+    (`ST_DWithin(geom::geography, ..., metres)`); a functional GiST index on that cast can be added if a query needs it.
+  - Separate tables per source, which would make every Phase 6 query a UNION.
+  - Raw feed JSON in a JSONB column: unindexed, with units unclear. Raw snapshots stay in `data/` instead.
+  - A Postgres enum for `source`, which is harder to change than a `CHECK`.
+  - SI units (metres, m/s): the decoder, the dashboard and pilots all work in feet and knots.
+  - TimescaleDB: deferred (decision #3).
+- **Deferred to later checkpoints:**
+  - **Speed, track, vertical rate, callsign and squawk:** attached only when fresh within a stated window (checkpoint B/D
+    rule).
+  - **`decoder_messages`:** off for live mode by default.
+  - **FAA tables:** checkpoint E.

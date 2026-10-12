@@ -74,7 +74,8 @@ and the language decision is approved.
 
 ## Phase 5: Backend and data (week 3)
 
-- [ ] Design the schema (numbered SQL files in `db/migrations/`)
+- [x] Design the schema (numbered SQL files in `db/migrations/`): `0001_init.sql`, decision #20 (Draft); PostGIS in
+      Docker Compose; `src/ingest/migrate.py`; tests on a throwaway database
 - [ ] Ingest decoded messages from my decoder
 - [ ] Verify OpenSky/adsb.lol coverage of KLAF traffic
 - [ ] Ingest public feed data (OpenSky / adsb.lol), within their documented rate limits

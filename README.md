@@ -71,12 +71,23 @@ The tests that need the recording are skipped when `data\modes1.bin` is absent.
 
 Recordings, feed snapshots and downloaded data live in `data/` and are never committed.
 
-Database (not started yet, needs Docker Desktop):
+## Database (PostgreSQL 16 + PostGIS, needs Docker Desktop)
+
+One-time setup: copy `.env.example` to `.env` and replace both `change-me` values with the same new password.
+`.env` is gitignored and must never be committed.
 
 ```powershell
-Copy-Item .env.example .env   # then set a real password in .env
-docker compose up -d
+docker compose up -d                       # start (first run downloads the image)
+docker compose ps                          # wait for "(healthy)"
+$env:PYTHONPATH = "src"
+python -m ingest.migrate                   # apply db/migrations/*.sql; safe to run again
+python -m pytest -m db                     # database tests, each run on its own throwaway database
+docker compose stop                        # stop; the data stays in the pgdata volume
+docker compose down                        # stop and remove the container; the data still stays
+docker compose down -v                     # remove the data volume as well (deletes everything)
 ```
+
+The database listens on 127.0.0.1:5432 only and is capped at 1 GB of memory. Idle, it uses about 70 MB.
 
 ## Layout
 
