@@ -78,6 +78,32 @@ def test_airspeed_velocity_book_example() -> None:
     assert (v.speed_kt, v.heading_deg) == (ref["airspeed"], pytest.approx(ref["heading"]))
 
 
+def with_altitude_code(msg_hex: str, code: int) -> Frame:
+    """A copy of a DF 0/4/20 frame with its 13-bit altitude code (message bits 19-31) replaced."""
+    frame = Frame.from_hex(msg_hex)
+    shift = frame.n_bits - 19 - 13
+    return Frame((frame.value & ~(0x1FFF << shift)) | (code << shift), frame.n_bits)
+
+
+@pytest.mark.parametrize(
+    "msg", ["02e60eb9be4118", "20000f1f684a6c", "a0200eb02004d0f4cb18200ba365"]
+)
+def test_ac13_gillham_metric_and_zero_return_none_without_raising(msg: str) -> None:
+    code = Frame.from_hex(msg).field(19, 13)
+    assert ac13_altitude_ft(Frame.from_hex(msg)) is not None  # control: Q = 1, M = 0
+    assert ac13_altitude_ft(with_altitude_code(msg, code & ~(1 << 4))) is None  # Q = 0: Gillham
+    assert ac13_altitude_ft(with_altitude_code(msg, code | (1 << 6))) is None  # M = 1: metric
+    assert ac13_altitude_ft(with_altitude_code(msg, 0)) is None  # not available
+
+
+def test_adsb_altitude_with_q0_returns_none_without_raising() -> None:
+    frame = Frame.from_hex(POS_EVEN)
+    q_bit = 1 << (frame.n_bits - (32 + 8 + 7) - 1)  # ME bits 9-20 hold the altitude; Q is its 8th
+    pos = airborne_position(Frame(frame.value & ~q_bit, frame.n_bits))
+    assert pos.altitude_ft is None
+    assert pos.lat_cpr == 93000  # the rest of the message is still decoded
+
+
 def test_ac13_altitude_and_squawk() -> None:
     assert ac13_altitude_ft(Frame.from_hex("20000f1f684a6c")) == 23375  # golden DF 4
     assert squawk(Frame.from_hex("2A00516D492B80")) == "0356"  # Riddle, "Surveillance reply"

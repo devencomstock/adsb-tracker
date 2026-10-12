@@ -325,7 +325,7 @@ One entry per real choice. Status is **Draft** until approved, then **Approved**
 ## #17: Output-field scope at checkpoint C
 
 - **Date:** 2026-10-12
-- **Status:** Draft, pending approval
+- **Status:** Approved (including the DF 0/4/20 altitude and the DF 5/21 squawk)
 - **Decision:** Checkpoint C decodes:
   - ADS-B identification (TC 1-4), airborne position with barometric altitude (TC 9-18: altitude, flags, raw CPR) and
     velocity (TC 19, all four subtypes);
