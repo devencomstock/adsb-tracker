@@ -56,6 +56,19 @@ every `.err` file was empty.
 Match the **no-fix** files first (my decoder starts without error correction), and the default
 files later.
 
+## Statistics quoted in the docs
+
+`scripts/golden_stats.py` prints the numbers quoted in `docs/pseudocode.md` and decision #7. It covers DF and
+type-code counts per file, the replay under the "seen earlier in the recording" rule (54 list-dependent
+messages in the no-fix file, 0 exceptions), and the stage 4 CRC examples. With `--trace` it also prints the
+sample-level hand trace of the first message (it starts at sample 794), which needs `data/modes1.bin`. It isn't
+part of the decoder. From the repo root, in PowerShell:
+
+```powershell
+.\.venv\Scripts\python scripts\golden_stats.py            # golden files only
+.\.venv\Scripts\python scripts\golden_stats.py --trace    # also the sample-level trace
+```
+
 ## What error correction changes (default vs no-fix)
 
 Both settings produce the **same 217 messages**. Error correction adds no messages on this
