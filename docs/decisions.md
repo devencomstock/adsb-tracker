@@ -321,3 +321,25 @@ One entry per real choice. Status is **Draft** until approved, then **Approved**
 - **Cost:** about 2.5 ms extra on `modes1.bin` (24 → 27 ms). The decoder still runs at about 6.7 times real time on one strong aircraft.
 - **Risk:** a falsely accepted re-read frame would add its address to the recently-seen list. We match dump1090 here and
   revisit with live data in Phase 5.
+
+## #17: Output-field scope at checkpoint C
+
+- **Date:** 2026-10-12
+- **Status:** Draft, pending approval
+- **Decision:** Checkpoint C decodes:
+  - ADS-B identification (TC 1-4), airborne position with barometric altitude (TC 9-18: altitude, flags, raw CPR) and
+    velocity (TC 19, all four subtypes);
+  - pure CPR functions (`nl`, `global_position`, `local_position`);
+  - **beyond the approved list:** the 13-bit altitude of DF 0/4/20 and the squawk of DF 5/21.
+
+  Not decoded (they return `None`):
+  - Gillham altitude (Q = 0) and metric altitude (M = 1);
+  - surface position, GNSS-height position and the other type codes;
+  - DF 20/21 Comm-B contents.
+
+  Pairing even/odd frames per aircraft stays in Phase 5.
+- **Alternatives:** stick strictly to the ADS-B fields (the 34 DF 0/4/5/20/21 golden messages would go unchecked); also decode
+  Gillham altitude now (no message in `modes1.bin` uses it, so it couldn't be checked against the golden files).
+- **Why:** The DF 0/4/20 altitude and the DF 5/21 squawk are small, have a cited layout (Riddle, "Surveillance reply"), and can
+  be checked against 34 golden messages and pyModeS. The squawk is needed for the 7500/7600/7700 rules in Phase 6.
+  Everything left out is either absent from this recording or needs tracking state.

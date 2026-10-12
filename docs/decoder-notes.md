@@ -248,3 +248,31 @@ counts (TC 11 = 59, TC 19 = 54, TC 4 = 7) and against the `DF` and `Extended Squ
 golden file, message by message.
 
 ### 6. Output fields
+
+Code: `src/decoder/fields.py` (single messages) and `src/decoder/cpr.py` (positions). The field layouts are in
+`docs/mode-s-primer.md`; this is what each one gives you:
+- **Identification (TC 1-4):** a category and an 8-character callsign, 6 bits per character. *What it is: the flight
+  name, for example AMC421.*
+- **Airborne position (TC 9-18):** altitude in 25 ft steps (when the Q bit is set), a time flag, the even/odd CPR flag,
+  and two 17-bit CPR numbers. *What it is: how high, and a compressed position that isn't a latitude/longitude yet.*
+- **Velocity (TC 19):** subtypes 1/2 give east-west and north-south speed components, which make ground speed and track.
+  Subtypes 3/4 give airspeed and heading. Every subtype gives a vertical rate in 64 ft/min steps and the GNSS-minus-baro
+  height difference. *What it is: how fast, which way, climbing or descending.*
+- **Mode S replies:** DF 0/4/20 carry a 13-bit altitude code (M and Q bits removed, 25 ft steps). DF 5/21 carry the
+  4-digit squawk, whose bits are interleaved as C1 A1 C2 A2 C4 A4 X B1 D1 B2 D2 B4 D4 (Riddle, "Surveillance reply").
+  The squawk is what the 7500/7600/7700 rules will need.
+- **Not decoded yet** (`None`): Gillham-coded altitude (Q = 0), metric altitude (M = 1), and surface or other type codes.
+  None of these occur in `modes1.bin`.
+
+**CPR positions.** A position message carries only *where inside a grid cell* the aircraft is. There are two grids
+(60 latitude zones for "even" frames, 59 for "odd"), so one even plus one odd frame pin down the cell (`global_position`).
+One frame plus a known nearby position also works (`local_position`). The number of longitude zones shrinks toward the
+poles (`nl`: 59 at the equator, 45 at West Lafayette). If an even/odd pair lands in different longitude-zone counts,
+it's rejected and a newer pair is needed. Deciding which frames belong together (same aircraft, recent enough) is
+tracking, which is Phase 5.
+
+**How it's checked:**
+- All 217 golden messages, in both decoded files, field by field (`tests/test_golden_fields.py`): callsign, altitude,
+  F/T flags, CPR numbers, the raw velocity fields dump1090 prints, the DF 0/4/20 altitude and the DF 5/21 squawk.
+- Every value is cross-checked against pyModeS.
+- CPR is checked against the Riddle's example (52.2572°, 3.9194°) for both the global and the local decode.
