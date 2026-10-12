@@ -12,6 +12,7 @@ from decoder.bits import read_bits, to_frame
 from decoder.preamble import DATA_OFFSET, find_candidates
 from decoder.recent import RecentlySeen, recording_time
 from decoder.samples import load_iq, magnitude
+from decoder.timing import hypotheses, offset_estimate, reread_bits
 
 # Weakest preamble pulse worth reading, in magnitude units (0 to about 180). Decision #10.
 SIGNAL_FLOOR = 9.0
@@ -21,10 +22,30 @@ SIGNAL_FLOOR = 9.0
 class Message:
     start: int  # sample index of the preamble's first pulse
     accepted: Accepted
+    timing_offset: float | None = None  # set when found by the timing re-read (stage 3d)
+
+
+def decode_at(
+    mag: np.ndarray, start: int, recent: RecentlySeen, fix: bool, timing_reread: bool
+) -> Message | None:
+    """Plain read first; if accept() rejects it, re-read at the estimated timing offsets."""
+    t = recording_time(start)
+    bits, ties = read_bits(mag, start)
+    if not ties:
+        result = accept(to_frame(bits), recent, t, fix)
+        if result is not None:
+            return Message(start, result)
+    if not timing_reread:
+        return None
+    for offset in hypotheses(offset_estimate(mag, start)):
+        result = accept(to_frame(reread_bits(mag, start, offset)), recent, t, fix)
+        if result is not None:
+            return Message(start, result, timing_offset=offset)
+    return None
 
 
 def decode_magnitudes(
-    mag: np.ndarray, fix: bool, signal_floor: float = SIGNAL_FLOOR
+    mag: np.ndarray, fix: bool, signal_floor: float = SIGNAL_FLOOR, timing_reread: bool = True
 ) -> list[Message]:
     """Accepted messages in sample order. After a message, candidates inside it are skipped."""
     recent = RecentlySeen()
@@ -33,20 +54,18 @@ def decode_magnitudes(
     for start in map(int, find_candidates(mag, signal_floor)):
         if start < next_free:
             continue
-        bits, ties = read_bits(mag, start)
-        if ties:
+        message = decode_at(mag, start, recent, fix, timing_reread)
+        if message is None:
             continue
-        frame = to_frame(bits)
-        result = accept(frame, recent, recording_time(start), fix)
-        if result is None:
-            continue
-        messages.append(Message(start, result))
-        next_free = start + DATA_OFFSET + 2 * frame.n_bits
+        messages.append(message)
+        next_free = start + DATA_OFFSET + 2 * message.accepted.frame.n_bits
     return messages
 
 
-def decode_file(path: Path, fix: bool, signal_floor: float = SIGNAL_FLOOR) -> list[Message]:
-    return decode_magnitudes(magnitude(load_iq(path)), fix, signal_floor)
+def decode_file(
+    path: Path, fix: bool, signal_floor: float = SIGNAL_FLOOR, timing_reread: bool = True
+) -> list[Message]:
+    return decode_magnitudes(magnitude(load_iq(path)), fix, signal_floor, timing_reread)
 
 
 def raw_line(message: Message) -> str:
