@@ -406,7 +406,7 @@ One entry per real choice. Status is **Draft** until approved, then **Approved**
 ## #20: Database schema and units (checkpoint A)
 
 - **Date:** 2026-10-12
-- **Status:** Draft, pending approval
+- **Status:** Approved
 - **Decision:** `db/migrations/0001_init.sql` defines:
   - **`aircraft`:** one row per ICAO address (`icao24` text, the primary key: 6 lowercase hex digits), plus `first_seen` and
     `last_seen`.
