@@ -1,12 +1,15 @@
 services:
   db:
-    image: postgis/postgis:16-3.5
+    # PostgreSQL 16 + PostGIS 3.5 (decision #3), pinned by digest so a rebuild of the tag can't change it.
+    # 16-3.5 is the maintained PostgreSQL 16 tag (16-3.4 hasn't been rebuilt since 2024-10).
+    image: postgis/postgis:16-3.5@sha256:94146ac37bc61e2322f88016056c5920729cb8c64c8542ed590af8fc2abdac07
     # POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB come from the untracked .env
     env_file: .env
     ports:
-      - "127.0.0.1:5432:5432"
+      - "127.0.0.1:5432:5432"  # this machine only
     volumes:
       - pgdata:/var/lib/postgresql/data
+    mem_limit: 1g
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 10s
