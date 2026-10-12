@@ -13,7 +13,6 @@ Run:  python scripts/compare_golden.py            (summary)
 from __future__ import annotations
 
 import argparse
-import difflib
 import re
 import sys
 from collections import Counter
@@ -45,10 +44,10 @@ def golden_lines(mode: str, prefix: str = "modes1_raw") -> list[str]:
     return re.findall(r"\*([0-9a-f]+);", (GOLDEN / f"{prefix}_{mode}.txt").read_text())
 
 
-def fixture() -> dict[int, tuple[int, str, str]]:
+def fixture(name: str = "modes1_starts.txt") -> dict[int, tuple[int, str, str]]:
     """Golden line -> (start sample, flag, disagreeing bits)."""
     rows = {}
-    for text in (GOLDEN / "modes1_starts.txt").read_text().splitlines():
+    for text in (GOLDEN / name).read_text().splitlines():
         if not text.startswith("#"):
             line, start, flag, bits, _hex = text.split("\t")
             rows[int(line)] = (int(start), flag, bits)
@@ -60,13 +59,15 @@ def align(
 ) -> tuple[list[tuple[int, int]], list[int], list[int]]:
     """(matched golden/ours index pairs, missing golden indices, extra our indices).
 
-    A golden line matches one of our messages with the same hex whose start sample is within
-    MATCH_WINDOW of the line's fixture start. Matching by hex alone is wrong here: the same
-    message is often sent several times, so a copy could be credited to the wrong golden line.
+    Only golden lines present in `starts` are matched. A golden line matches one of our messages
+    with the same hex whose start sample is within MATCH_WINDOW of the line's fixture start.
+    Matching by hex alone is wrong here: the same message is often sent several times, so a copy
+    could be credited to the wrong golden line.
     """
     unused = set(range(len(messages)))
     matched, missing = [], []
-    for line, msg_hex in enumerate(golden):
+    for line in sorted(starts):
+        msg_hex = golden[line]
         start = starts[line][0]
         found = next(
             (
@@ -198,39 +199,41 @@ def compare(mode: str, mag, starts) -> tuple[str, dict[str, int]]:
         f"### Extra beyond sample {DUMP1090_DECODED_SAMPLES:,} (dump1090 never decoded this part)",
         "",
     ]
-    tail_text, tail_counts = compare_tail(mode, golden, [messages[i] for i in tail])
+    tail_text, tail_counts = compare_tail(
+        mode, golden, [messages[i] for i in tail], mag, candidates, fix
+    )
     out += [tail_text, ""]
     counts.update(tail_counts)
     return "\n".join(out), counts
 
 
-def compare_tail(mode: str, golden: list[str], tail: list[Message]) -> tuple[str, dict[str, int]]:
+def compare_tail(
+    mode: str, golden: list[str], tail: list[Message], mag, candidates: set[int], fix: bool
+) -> tuple[str, dict[str, int]]:
     """Our messages past sample 262,144 against the supplementary padded golden file (decision
-    #13). No start fixture exists for the tail, so lines are aligned in order by hex."""
+    #13), matched by start sample with tests/golden/modes1_tail_starts_<mode>.txt. This is the
+    holdout: nothing is tuned on it."""
     padded = golden_lines(mode, prefix="modes1_padded_raw")
     assert padded[: len(golden)] == golden, "padded golden must extend the approved golden file"
-    expected = padded[len(golden) :]
-    ours = [m.accepted.frame.hex for m in tail]
-    matcher = difflib.SequenceMatcher(a=expected, b=ours, autojunk=False)
-    out, matched = [], 0
-    for tag, a0, a1, b0, b1 in matcher.get_opcodes():
-        if tag == "equal":
-            matched += a1 - a0
-            continue
-        for i in range(a0, a1):
-            out.append(f"- padded golden line {len(golden) + i} `{expected[i]}`: not in our output")
-        for j in range(b0, b1):
-            m = tail[j]
-            out.append(
-                f"- **extra** at start {m.start} `{ours[j]}` DF{m.accepted.frame.df}, "
-                f"{m.accepted.how}: not in dump1090's padded output at this point"
-            )
+    tail_starts = fixture(f"modes1_tail_starts_{mode}.txt")
+    matched, missing, extra = align(padded, tail, tail_starts)
+    out = []
+    for line in missing:
+        why = why_missing(mag, line, padded[line], tail_starts, candidates, tail, fix)
+        cls = miss_class(*tail_starts[line], candidates)
+        out.append(f"- padded golden line {line} `{padded[line]}`: **{cls}**; {why}")
+    for j in extra:
+        m = tail[j]
+        out.append(
+            f"- **extra** at start {m.start} `{m.accepted.frame.hex}` DF{m.accepted.frame.df}, "
+            f"{m.accepted.how}; {overlapping_golden(m.start, tail_starts)}"
+        )
     counts = {
-        "tail_ours": len(ours),
-        "tail_padded_golden": len(expected),
-        "tail_matched": matched,
-        "tail_missing": len(expected) - matched,
-        "tail_extra": len(ours) - matched,
+        "tail_ours": len(tail),
+        "tail_padded_golden": len(tail_starts),
+        "tail_matched": len(matched),
+        "tail_missing": len(missing),
+        "tail_extra": len(extra),
     }
     head = [f"Against `modes1_padded_raw_{mode}.txt` (lines {len(golden)}-{len(padded) - 1}):", ""]
     head += [f"- {k.replace('_', ' ')}: **{v}**" for k, v in counts.items()]

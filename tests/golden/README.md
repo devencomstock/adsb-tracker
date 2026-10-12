@@ -117,6 +117,13 @@ comparison reproduces the golden hex there: 194 lines) or `approximate` (23 line
 `scripts/dump1090_prefix_search.sh nofix all > data/modes1_prefix_nofix.txt` (WSL) and then
 `python scripts/make_start_fixture.py` (decision #11). Only tests and scripts read it, never `src/decoder/`.
 
+`modes1_tail_starts_nofix.txt` (66 lines: 62 exact, 4 approximate) and `modes1_tail_starts_default.txt` (67 lines: 62 exact,
+5 approximate) do the same for the tail lines of the padded golden files (decision #13), so tail matching is by start sample too.
+In WSL: `bash scripts/dump1090_prefix_search.sh padded_nofix tail > data/modes1_prefix_padded_nofix.txt` (likewise for `padded_default`),
+then in PowerShell:
+`python scripts/make_start_fixture.py --prefix data/modes1_prefix_padded_nofix.txt --out tests/golden/modes1_tail_starts_nofix.txt`.
+The tail is a holdout: nothing in the decoder is tuned on it.
+
 ## What error correction changes (default vs no-fix)
 
 Both settings produce the **same 217 messages**. Error correction adds no messages on this

@@ -77,6 +77,23 @@ def test_no_extra_messages_where_dump1090_decoded(mag, fixture_rows, fix: bool) 
         assert any(abs(s - message.start) <= 16 for s in near), (message.start, message.accepted)
 
 
+@pytest.mark.parametrize(
+    ("mode", "fix", "lines", "exact"), [("nofix", False, 66, 62), ("default", True, 67, 62)]
+)
+def test_holdout_tail_exact_lines_are_decoded_at_their_start(mag, mode, fix, lines, exact) -> None:
+    # Holdout (decision #13): checked, never tuned on.
+    rows = [
+        text.split("\t")
+        for text in (STARTS.parent / f"modes1_tail_starts_{mode}.txt").read_text().splitlines()
+        if not text.startswith("#")
+    ]
+    assert len(rows) == lines
+    exact_rows = [(int(start), h) for _line, start, flag, _bits, h in rows if flag == "exact"]
+    assert len(exact_rows) == exact
+    decoded = {(m.start, m.accepted.frame.hex) for m in decode_magnitudes(mag, fix)}
+    assert [r for r in exact_rows if r not in decoded] == []
+
+
 def test_every_exact_line_is_decoded_at_its_start(mag, fixture_rows) -> None:
     decoded = {(m.start, m.accepted.frame.hex) for m in decode_magnitudes(mag, fix=False)}
     missing = [

@@ -15,10 +15,13 @@ golden hex. Flags:
                bits that disagree (dump1090 decoded these with rules beyond plain comparison)
 
 Run:  python scripts/make_start_fixture.py
+      python scripts/make_start_fixture.py --prefix data/modes1_prefix_padded_nofix.txt \
+          --out tests/golden/modes1_tail_starts_nofix.txt      (tail lines, decision #13)
 """
 
 from __future__ import annotations
 
+import argparse
 import re
 from pathlib import Path
 
@@ -44,10 +47,14 @@ def disagreeing_bits(mag: np.ndarray, start: int, msg_hex: str) -> list[int]:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--prefix", type=Path, default=PREFIX_FILE, help="prefix-search output")
+    parser.add_argument("--out", type=Path, default=OUT)
+    args = parser.parse_args()
     mag = magnitudes(RECORDING)
     rows = ["# line\tstart\tflag\tdisagreeing_bits\thex   (see scripts/make_start_fixture.py)"]
     exact = 0
-    for text in PREFIX_FILE.read_text().splitlines():
+    for text in args.prefix.read_text().splitlines():
         line = int(re.search(r"line=(\d+)", text).group(1))
         estimate = int(re.search(r"start_estimate=(\d+)", text).group(1))
         msg_hex = re.search(r"\*([0-9a-f]+);", text).group(1)
@@ -56,8 +63,8 @@ def main() -> None:
         flag = "exact" if not bits else "approximate"
         exact += flag == "exact"
         rows.append(f"{line}\t{start}\t{flag}\t{','.join(map(str, bits)) or '-'}\t{msg_hex}")
-    OUT.write_text("\n".join(rows) + "\n", newline="\n")
-    print(f"wrote {OUT.relative_to(REPO)}: {len(rows) - 1} lines, {exact} exact")
+    args.out.write_text("\n".join(rows) + "\n", newline="\n")
+    print(f"wrote {args.out}: {len(rows) - 1} lines, {exact} exact")
 
 
 if __name__ == "__main__":

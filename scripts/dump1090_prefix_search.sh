@@ -13,15 +13,29 @@
 # Run in WSL, from anywhere (needs ~/src/dump1090 built at the pinned commit, see tests/golden/README.md):
 #   bash scripts/dump1090_prefix_search.sh nofix 0 112 128 174 185 188 193
 #   bash scripts/dump1090_prefix_search.sh nofix all > data/modes1_prefix_nofix.txt   (every line)
+#
+# Modes padded_nofix / padded_default search the supplementary padded golden files (decision #13)
+# against modes1.bin padded to 786,432 bytes; `tail` there means every line after the approved 217:
+#   bash scripts/dump1090_prefix_search.sh padded_nofix tail > data/modes1_prefix_padded_nofix.txt
 set -u
 MODE=$1
 shift
 REPO=$(cd "$(dirname "$0")/.." && pwd)
-GOLD="$REPO/tests/golden/modes1_raw_$MODE.txt"
 cd ~/src/dump1090
 F=testfiles/modes1.bin
+case "$MODE" in
+  padded_*)
+    GOLD="$REPO/tests/golden/modes1_padded_raw_${MODE#padded_}.txt"
+    APPROVED="$REPO/tests/golden/modes1_raw_${MODE#padded_}.txt"
+    PADDED_INPUT=$(mktemp)
+    trap 'rm -f "$PADDED_INPUT"' EXIT
+    { cat "$F"; head -c $((786432 - $(stat -c %s "$F"))) /dev/zero | tr '\0' '\177'; } > "$PADDED_INPUT"
+    F=$PADDED_INPUT
+    ;;
+  *) GOLD="$REPO/tests/golden/modes1_raw_$MODE.txt" ;;
+esac
 SIZE=$(stat -c %s "$F")
-if [ "$MODE" = nofix ]; then FLAGS="--no-fix"; else FLAGS=""; fi
+case "$MODE" in *nofix) FLAGS="--no-fix" ;; *) FLAGS="" ;; esac
 
 padded() { head -c "$1" "$F"; head -c $((SIZE - $1)) /dev/zero | tr '\0' '\177'; }
 ok_for() {  # $1 = prefix bytes, $2 = K: do the first K+1 output lines match the golden file?
@@ -35,6 +49,9 @@ if [ "${1:-}" = all ]; then
   # Every golden line, in order. Line K can't need a shorter prefix than line K-1, so each
   # search starts from the previous answer.
   set -- $(seq 0 $(($(wc -l < "$GOLD") - 1)))
+  INCREMENTAL=1
+elif [ "${1:-}" = tail ]; then
+  set -- $(seq "$(wc -l < "$APPROVED")" $(($(wc -l < "$GOLD") - 1)))
   INCREMENTAL=1
 else
   INCREMENTAL=0

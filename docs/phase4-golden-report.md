@@ -52,11 +52,11 @@ Against `modes1_padded_raw_nofix.txt` (lines 217-282):
 - tail missing: **4**
 - tail extra: **1**
 
-- padded golden line 226 `5d4d20237a55a6`: not in our output
-- padded golden line 253 `5d4d20237a55a6`: not in our output
-- **extra** at start 314791 `8d4d202399108eab6870142758f2` DF17, clean: not in dump1090's padded output at this point
-- padded golden line 263 `280010248c796b`: not in our output
-- padded golden line 267 `8d4d202399108dab6870142247a0`: not in our output
+- padded golden line 226 `5d4d20237a55a6`: **6-19 wrong bits**; start ~281059 (approximate); plain comparison disagrees at bits 5,13,25,29,31,36,48,52,54; our bits there: 5949206672552c; accept(): rejected
+- padded golden line 253 `5d4d20237a55a6`: **few wrong bits (1-5)**; start ~315124 (approximate); plain comparison disagrees at bits 5,25,54; our bits there: 594d20637a55a4; accept(): rejected
+- padded golden line 263 `280010248c796b`: **6-19 wrong bits**; start ~322551 (approximate); plain comparison disagrees at bits 18,25,35,37,40,44,46,50,55; our bits there: 2800306498f34a; accept(): rejected
+- padded golden line 267 `8d4d202399108dab6870142247a0`: **few wrong bits (1-5)**; start ~327327 (approximate); plain comparison disagrees at bits 100; our bits there: 8d4d202399108dab687014224fa0; accept(): rejected
+- **extra** at start 314791 `8d4d202399108eab6870142758f2` DF17, clean; not near any golden line
 
 ## default
 
@@ -105,8 +105,8 @@ Against `modes1_padded_raw_default.txt` (lines 217-283):
 - tail missing: **4**
 - tail extra: **1**
 
-- padded golden line 223 `8d4d202399108eabc87414b01676`: not in our output
-- padded golden line 227 `5d4d20237a55a6`: not in our output
-- padded golden line 254 `5d4d20237a55a6`: not in our output
-- **extra** at start 314791 `8d4d202399108eab6870142758f2` DF17, clean: not in dump1090's padded output at this point
-- padded golden line 263 `280010248c796b`: not in our output
+- padded golden line 223 `8d4d202399108eabc87414b01676`: **many wrong bits (20+)**; start ~275049 (approximate); plain comparison disagrees at bits 3,5,11,13,17,25,29,32,34,36,38,42,47,51,54,65,67,72,75,82,87,91,98,102,104,107,110; our bits there: 9959606733319cab98e435a034e4; accept(): rejected
+- padded golden line 227 `5d4d20237a55a6`: **6-19 wrong bits**; start ~281059 (approximate); plain comparison disagrees at bits 5,13,25,29,31,36,48,52,54; our bits there: 5949206672552c; accept(): rejected
+- padded golden line 254 `5d4d20237a55a6`: **few wrong bits (1-5)**; start ~315124 (approximate); plain comparison disagrees at bits 5,25,54; our bits there: 594d20637a55a4; accept(): rejected
+- padded golden line 264 `280010248c796b`: **6-19 wrong bits**; start ~322551 (approximate); plain comparison disagrees at bits 18,25,35,37,40,44,46,50,55; our bits there: 2800306498f34a; accept(): rejected
+- **extra** at start 314791 `8d4d202399108eab6870142758f2` DF17, clean; not near any golden line
