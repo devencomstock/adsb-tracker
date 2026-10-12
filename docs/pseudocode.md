@@ -415,7 +415,7 @@ signal processing exists.
 7. **Bits at known starts** (stage 3a). 217/217 hex must match at the fixture starts.
 8. **Preamble detection** (stage 2). Every fixture start must be a candidate.
 9. **Whole-file run.** Compare against `modes1_raw_nofix.txt` and report counts of matched, missing (in golden, not
-   in ours) and extra (in ours, not in golden). Each one must be explained (decision #8).
+   in ours) and extra (in ours, not in golden). Extra must be zero, and every miss must be explained (decision #8).
 10. **Later:** single-bit repair, then match `modes1_raw_default.txt`.
 
 Each step is one small function with its own tests (CLAUDE.md). All tests run from `pytest`, and no test imports dump1090.

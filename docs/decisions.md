@@ -131,24 +131,25 @@ One entry per real choice. Status is **Draft** until approved, then **Approved**
      - match the decoded fields (DF, ICAO, CA, TC, altitude, F flag, CPR lat/lon) in `modes1_decoded_nofix.txt`.
      No exceptions are allowed.
   2. **Demodulator (stages 1-3): judged on the no-fix message set.** Run on all of `modes1.bin` and report three
-     lists: matched, missing (in golden but not ours) and extra (ours but not golden). **Every missing or extra
-     message must have a written explanation.** Typical causes are dump1090's phase-correction retry, its
-     "hold the previous bit" rule, its contrast filter, or its looser preamble test. Each explanation must be
-     backed by evidence such as the message's samples and which check it failed.
+     lists: matched, missing (in golden but not ours) and extra (ours but not golden).
+     - **Extra messages: zero allowed.** Every message the decoder outputs must be in the golden set.
+     - **Missing messages: every one must have a written explanation.** Typical causes are dump1090's phase-correction
+       retry, its "hold the previous bit" rule, its contrast filter, or its looser preamble test. Each explanation must be
+       backed by evidence such as the message's samples and which check it failed.
 - **Buy the dongle when:**
   - level 1 passes at 100%;
-  - level 2 has **zero unexplained differences** and **at most 10 missing (95% or more of 217 matched)**;
+  - level 2 has **zero extra messages**, **at most 10 missing (95% or more of 217 matched)**, and **every miss explained**;
   - the speed measurement in decision #6 has been reported.
 - **Go back and adjust the demodulator when:**
-  - any difference is unexplained;
+  - any extra message appears;
+  - any miss is unexplained;
   - more than 10 messages are missing;
-  - a message is found at a golden start sample but its bits differ from the golden hex (a stage 3 bug, not a heuristic gap);
-  - or an extra message appears that dump1090 would also have accepted if it had seen it (a real disagreement, not a dump1090
-    heuristic).
+  - or a message is found at a golden start sample but its bits differ from the golden hex (a stage 3 bug, not a heuristic gap).
 - **Alternatives:**
   - Require an exact 217/217 match. This would force reproducing every dump1090 heuristic, which would push the decoder toward
     copying it.
   - "Close enough" with no explanation required. This would hide real bugs.
 - **Why:** The bit-level stages are pure logic, so anything less than 100% is a bug. The demodulator works on noisy
-  analog signals, where dump1090 uses tuned tricks that aren't in the Riddle. Requiring every difference to be
-  explained keeps the decoder honest without requiring a copy. The 10-message (about 5%) limit is my proposal; adjust it if you want stricter.
+  analog signals, where dump1090 uses tuned tricks that aren't in the Riddle. Allowing no extra messages means the
+  decoder never outputs anything dump1090 rejected. Requiring every miss to be explained keeps it honest without requiring a copy.
+  The 10-message (about 5%) limit is the threshold for buying the dongle.
