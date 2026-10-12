@@ -32,9 +32,10 @@ up and confirmed by a test; decisions #1 to #3 are approved; no secrets or data 
 
 ## Phase 1: Learn the format (days 1-3)
 
-- [ ] Read The 1090 Megahertz Riddle (Mode S basics, DF17 layout, identification, CRC, position, velocity)
+- [x] Read The 1090 Megahertz Riddle (Mode S basics, DF17 layout, identification, CRC, position, velocity)
 - [ ] Write up in `docs/decoder-notes.md` what each DF17 field means, in my own words
-- [ ] Hand-decode at least one airborne position and one velocity message as practice, confirmed with pyModeS
+- [x] Hand-decode at least one airborne position and one velocity message as practice, confirmed with pyModeS
+      (see `docs/mode-s-primer.md`, `scripts/phase1_worked_examples.py`, `tests/test_phase1_examples.py`)
 
 **Definition of done:** I can explain, without notes, how a 112-bit DF17 message breaks down into
 DF, CA, ICAO, ME and PI, and how the type code picks the ME layout.
