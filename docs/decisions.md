@@ -44,7 +44,7 @@ One entry per real choice. Status is **Draft** until approved, then **Approved**
 ## #4: Golden output generated twice, with and without error correction
 
 - **Date:** 2026-10-12
-- **Status:** Draft, pending approval
+- **Status:** Approved
 - **Decision:** Generate dump1090's answer key on `modes1.bin` in two settings, each as raw hex
   (`--raw`) and as decoded text:
   - **no-fix** (`--no-fix`): single-bit CRC error correction off. My decoder matches this first.
@@ -63,7 +63,7 @@ One entry per real choice. Status is **Draft** until approved, then **Approved**
 ## #5: Pin the answer key to one dump1090 commit
 
 - **Date:** 2026-10-12
-- **Status:** Draft, pending approval
+- **Status:** Approved
 - **Decision:** The golden files come from antirez/dump1090 at commit
   `efe64db3c6ba1520291331628a33c1e208e851a6`, built in WSL outside this repo (`~/src/dump1090`).
   It isn't vendored. The commit SHA and the sha256 of the input and outputs are recorded.
