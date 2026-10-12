@@ -1,4 +1,4 @@
-﻿# Decisions
+# Decisions
 
 One entry per real choice. Status is **Draft** until approved, then **Approved**.
 
@@ -90,7 +90,7 @@ One entry per real choice. Status is **Draft** until approved, then **Approved**
     until a measurement shows it's needed.
 - **Why:** Phase 4 runs offline on a 0.18 s recording, where correctness and readability matter and speed doesn't.
   Python keeps every stage small, testable with pytest, and easy to compare against pyModeS and the golden files.
-  Live use with the dongle means 2 MHz Ã— 2 bytes = 4 MB/s of input. Whether Python + NumPy keeps up is
+  Live use with the dongle means 2 MHz × 2 bytes = 4 MB/s of input. Whether Python + NumPy keeps up is
   **unmeasured**. Before buying the dongle (decision #8), time the decoder on `modes1.bin` and report samples per second
   against the 2,000,000 needed. If it's too slow, revisit this decision.
 - **Stretch idea (not part of Phase 4):** port only the demodulator (stages 1-3) to C later, as a learning exercise or
@@ -211,7 +211,7 @@ One entry per real choice. Status is **Draft** until approved, then **Approved**
 - **Status:** Approved
 - **Decision:** `tests/golden/modes1_starts.txt` gives each golden no-fix line's start sample. It's built in two steps:
   1. `scripts/dump1090_prefix_search.sh nofix all` (WSL) finds the shortest prefix after which dump1090 outputs the line.
-  2. `scripts/make_start_fixture.py` refines it by searching estimateâˆ’8 to estimate+32 for the start where plain bit
+  2. `scripts/make_start_fixture.py` refines it by searching estimate−8 to estimate+32 for the start where plain bit
      comparison reproduces the golden hex.
 
   Lines with such a start are flagged `exact` (194); the others are `approximate` (23). Tests assert exact starts only.
@@ -250,7 +250,8 @@ One entry per real choice. Status is **Draft** until approved, then **Approved**
 ## #14: Preamble test tolerates energy in the samples beside a pulse
 
 - **Date:** 2026-10-12
-- **Status:** Approved provisionally, pending the tail extra at sample 314,791
+- **Status:** Approved. The tail extra at 314,791 is an explained real transmission dump1090 missed (see below). It's in the
+  holdout, so decision #8 is unchanged.
 - **Decision:** A preamble candidate needs:
   - each pulse louder than the quiet samples right beside it;
   - the quiet samples away from pulses (offsets 4, 5, 11-14) below 2/3 of the average pulse level;
@@ -260,7 +261,7 @@ One entry per real choice. Status is **Draft** until approved, then **Approved**
 - **Why:** A signal that arrives between sample instants spreads each pulse into its neighbour, so testing those neighbours
   rejects real messages. This follows the dump1090 behavior already documented in `docs/pseudocode.md` stage 2 (`dump1090.c`
   1599-1650), written in our own form and not identical to it.
-- **Measured:** no-fix misses unchanged at 23, default misses 21 â†’ 20 (line 193's preamble is now found and repaired), still 0
+- **Measured:** no-fix misses unchanged at 23, default misses 21 → 20 (line 193's preamble is now found and repaired), still 0
   extras inside the region dump1090 decoded. All 194 exact-start golden messages remain candidates.
 - **Alternatives:** keep the strict test (simpler, but contradicts the physical reason above for no measured gain).
 - **The tail extra this introduced, at sample 314,791 (resolved):** a DF 17 with CRC remainder 0, address `4d2023`, bit for bit
@@ -269,3 +270,22 @@ One entry per real choice. Status is **Draft** until approved, then **Approved**
   doesn't overlap dump1090's DF 11 at padded line 253, which starts about 93 samples after this frame ends (tail fixture,
   decision #13). Verdict: **a real transmission dump1090 missed**, not an overlap and not a false accept. Why identical content
   was sent twice 1.58 ms apart is unexplained.
+
+## #15: Gate the dongle threshold on default mode; keep reporting no-fix
+
+- **Date:** 2026-10-12
+- **Status:** Draft, pending approval
+- **Decision:** Decision #8's dongle threshold (at most 10 missing, every miss explained, zero extras) is measured against the
+  **default** (fix-on) golden file, because default mode is what will run live. The no-fix comparison is still run and
+  reported every time, but doesn't gate the purchase.
+- **Alternatives:**
+  - Keep both modes gating, as decision #8 is written now.
+  - Revise the limit itself (for example, more than 10 missing allowed in no-fix).
+- **Why:** Live decoding will use error correction, so default mode is the honest measure of what the receiver delivers.
+  No-fix stays useful as a diagnostic of the demodulator on its own.
+- **Context (predictions from the stage 3d prototype, first 217 lines, not measured runs):**
+  - With step a2: default about 1 missing (line 174, a preamble miss), no-fix about 4.
+  - Both modes also produce 3 extras inside the decoded region that look like real transmissions dump1090 missed (CRC-valid,
+    strong pulses; two fail dump1090's own preamble condition).
+  - Under decision #8's zero-extras rule these would still block the threshold in *either* mode. So this decision doesn't
+    settle the extras question, which needs its own decision once a2 is built and measured.
