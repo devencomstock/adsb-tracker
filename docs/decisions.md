@@ -115,6 +115,13 @@ One entry per real choice. Status is **Draft** until approved, then **Approved**
   stays deterministic. **Verification in Phase 4:**
   1. The decoder's no-fix message set must equal the golden file.
   2. Disabling the list must remove exactly those 54 messages.
+- **Default (fix-on) file:** the same rule also explains it, with 52 list-dependent messages and 0 exceptions.
+  Repaired frames never add an address, so the default run has 159 list sources against 163 in no-fix:
+  - 4 frames came out clean in the no-fix run but needed a one-bit repair in the default run.
+  - 2 DF 11 frames read as interrogator ID 1 in the no-fix run were repaired (bit 55) in the default run, because dump1090
+    repairs before applying the interrogator-ID rule.
+
+  Details are in `docs/pseudocode.md` stage 4c.
 - **Limit:** `modes1.bin` contains one aircraft, so it barely tests this rule. A longer recording of my own will test it properly.
 
 ## #8: What "the decoder matches dump1090" means

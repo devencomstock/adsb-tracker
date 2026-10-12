@@ -226,7 +226,7 @@ r = crc_remainder(all bits of the message)                 # 24-bit number
 df = first 5 bits
 
 if df in {17, 18}:
-    if r != 0: reject                                     # no-fix: no repair in Phase 4
+    if r != 0: reject                                     # no-fix; repair comes later (4c)
     icao = bits 9-32;   add_recent(icao, now)             # clean frame: remember it
     accept
 elif df == 11:
@@ -287,12 +287,47 @@ The file has one aircraft, whose first frame is a clean DF 17, so it barely exer
 1. The decoder's no-fix message set must equal the golden file.
 2. With the list disabled, exactly those 54 messages must disappear, and nothing else.
 
-**Default run (fix on) versus no-fix.** A frame that dump1090 *repaired* doesn't add its address (errorbit ≠ -1). On this
-file, that means 3 DF 11 and 3 DF 17 frames that are list sources in the no-fix run aren't sources in the default run.
-In the default run they are recovered by the fix; in the no-fix run they come out clean through the phase-correction
-retry (Phase 2 finding). It makes no difference here because `4d2023` was already listed. On a busier recording
-it could: an aircraft seen only in repaired frames would never be listed, so its DF 4/5/20/21 replies would be dropped.
-The decoder must apply the same "no repaired frames" rule when error correction is added.
+**Default run (fix on) versus no-fix.** dump1090 repaired 6 frames in the default run. A repaired frame doesn't add
+its address to the list (1197-1200). `scripts/golden_stats.py` partitions both files exactly and lists the 6 frames. They
+split into two kinds:
+
+| Golden line | DF | Repaired bit | Start sample | No-fix hex, remainder | Default hex | List source? no-fix / default |
+|---|---|---|---|---|---|---|
+| 112 | 17 | 66 | 123821 | same, `000000` | same | yes / no |
+| 185 | 17 | 61 | 222008 | same, `000000` | same | yes / no |
+| 188 | 17 | 99 | 229407 | same, `000000` | same | yes / no |
+| 193 | 11 | 5 | 231307 | same, `000000` | same | yes / no |
+| 128 | 11 | 55 | about 144765 | `5d4d20237a55a7`, `000001` | `5d4d20237a55a6` | no / no |
+| 174 | 11 | 55 | about 198770 | `5d4d20237a55a7`, `000001` | `5d4d20237a55a6` | no / no |
+
+- **Same hex in both files (4 frames).** In the default run, the first reading had one wrong bit, which was repaired. In
+  the no-fix run the same frame came out clean. At 222008, 229407 and 231307, a plain half-versus-half comparison gets exactly
+  the repaired bit wrong and nothing else, so the no-fix run must have re-read those samples differently. That fits the
+  phase-correction retry (1785-1790), but I haven't traced it inside dump1090. These 4 frames are list sources in the
+  no-fix run only.
+- **Different hex (2 DF 11 frames).** The no-fix remainder is 1. One is a power of two, and **1 is exactly the remainder a single
+  flipped last parity bit (bit 55) produces**. dump1090 tries repair *before* the interrogator-ID rule (1112-1127 run before
+  1202-1209). So with the fix on, it flips bit 55 and gets remainder 0; with `--no-fix` it reads interrogator ID 1. Below 80, the
+  remainders that collide like this are exactly 1, 2, 4, 8, 16, 32 and 64 (bits 55 down to 49 of the parity field). Every other
+  interrogator-ID frame in this file has remainder **60**, which collides with nothing, so those 18 are read the same
+  way in both runs. Which reading of the two remainder-1 frames is true can't be decided from the bits. All the
+  others saying 60 hints at a bit error, and at line 128's best alignment the plain comparison reads bit 55 as 0, but
+  neither is proof. Neither run adds these two to the list.
+
+This makes no difference on this file, because `4d2023` was already listed (159 clean list sources in the default run versus
+163 in no-fix). On a busier recording it could: an aircraft seen only in repaired frames would never be listed, so its DF 4/5/20/21
+replies would be dropped.
+
+**What Phase 4 must do to match the default file** (step 10 below):
+1. Add single-bit repair for DF 11/17/18 only, and run it **before** the DF 11 interrogator-ID rule. Repair only when the
+   remainder equals the remainder of exactly one flipped bit. Never repair the first 5 bits of a 112-bit frame (806).
+   - For 56-bit frames, dump1090 reuses its 112-bit table shifted by 56 bits (874-880). As I read it, that leaves a short frame's
+     first 5 bits repairable. This is unverified; Phase 4 pins it down with a unit test.
+2. A repaired frame is accepted and output with the repaired hex, but **doesn't add its address** to the list.
+3. Bit-level check (100%): applying the repair to the 217 no-fix golden lines changes exactly lines 128 and 174, and the
+   result equals `modes1_raw_default.txt` byte for byte. `scripts/golden_stats.py` already shows this.
+4. The other 4 repaired frames have the same hex in both files, so they only test the demodulator. If our demodulator reads one
+   bit wrong, the repair recovers it; if it reads it right, no repair is needed. Either way the output line matches.
 
 **Trace:**
 - `8f4d2023587f345e35837e2218b2` (DF 17): remainder **000000**, so it's accepted. `4d2023` is added at
@@ -416,7 +451,8 @@ signal processing exists.
 8. **Preamble detection** (stage 2). Every fixture start must be a candidate.
 9. **Whole-file run.** Compare against `modes1_raw_nofix.txt` and report counts of matched, missing (in golden, not
    in ours) and extra (in ours, not in golden). Extra must be zero, and every miss must be explained (decision #8).
-10. **Later:** single-bit repair, then match `modes1_raw_default.txt`.
+10. **Later:** single-bit repair before the DF 11 interrogator-ID rule (stage 4c, "What Phase 4 must do"). First, the bit-level
+    test: the 217 no-fix golden lines plus repair must equal `modes1_raw_default.txt`. Then the whole-file run against the default file.
 
 Each step is one small function with its own tests (CLAUDE.md). All tests run from `pytest`, and no test imports dump1090.
 pyModeS appears only in tests.
