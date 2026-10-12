@@ -23,7 +23,7 @@ import numpy as np
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "src"))
 
-from decoder.accept import accept  # noqa: E402
+from decoder.accept import How, accept  # noqa: E402
 from decoder.bits import read_bits, to_frame  # noqa: E402
 from decoder.pipeline import SIGNAL_FLOOR, Message, decode_magnitudes  # noqa: E402
 from decoder.preamble import DATA_OFFSET, find_candidates  # noqa: E402
@@ -151,6 +151,63 @@ def overlapping_golden(start: int, starts) -> str:
     return "not near any golden line"
 
 
+def dump1090_preamble_failures(mag, j: int) -> list[str]:
+    """Which of dump1090's preamble conditions fail at start j (diagnostic only; the conditions are
+    dump1090.c 1602-1611 and 1624-1642 at efe64db, as described in docs/pseudocode.md stage 2)."""
+    m = [float(mag[j + k]) for k in range(15)]
+    level = (m[0] + m[2] + m[7] + m[9]) / 6
+    shape = {
+        "sample 0 above 1": m[0] > m[1],
+        "sample 1 below 2": m[1] < m[2],
+        "sample 2 above 3": m[2] > m[3],
+        "sample 3 below pulse 0": m[3] < m[0],
+        "sample 4 below pulse 0": m[4] < m[0],
+        "sample 5 below pulse 0": m[5] < m[0],
+        "sample 6 below pulse 0": m[6] < m[0],
+        "sample 7 above 8": m[7] > m[8],
+        "sample 8 below 9": m[8] < m[9],
+        "sample 9 above 6": m[9] > m[6],
+    }
+    shape.update(
+        {f"sample {k} below 2/3 pulse level": m[k] < level for k in (4, 5, 11, 12, 13, 14)}
+    )
+    return [name for name, ok in shape.items() if not ok]
+
+
+def known_extras() -> list[tuple[int, str, str, str]]:
+    rows = []
+    for text in (GOLDEN / "known_extras.txt").read_text(encoding="utf-8").splitlines():
+        if text and not text.startswith("#"):
+            start, msg_hex, mode, reason = text.split("\t")
+            rows.append((int(start), msg_hex, mode, reason))
+    return rows
+
+
+def explain_extra(mag, m: Message, mode: str) -> tuple[bool, str]:
+    """Decision #8 (revised): an extra is explained only if (a) CRC-valid by remainder 0 on DF
+    11/17/18 or address parity to a listed address, (b) all four pulses reach the floor,
+    (c) a reason is documented, and (d) it's listed in tests/golden/known_extras.txt."""
+    a = m.accepted.how in (How.CLEAN, How.ADDRESS_PARITY)
+    b = all(mag[m.start + k] >= SIGNAL_FLOOR for k in (0, 2, 7, 9))
+    listed = [
+        reason
+        for start, msg_hex, which, reason in known_extras()
+        if abs(start - m.start) <= MATCH_WINDOW
+        and msg_hex == m.accepted.frame.hex
+        and which in (mode, "both")
+    ]
+    c = bool(listed and listed[0].strip())
+    ok = a and b and c
+    fails = dump1090_preamble_failures(mag, m.start)
+    note = (
+        f"(a) {'yes' if a else 'NO'}, (b) {'yes' if b else 'NO'}, (c)+(d) {'yes' if c else 'NO'}; "
+        f"dump1090 preamble conditions failing here: {', '.join(fails) or 'none'}"
+    )
+    if listed:
+        note += f"; known: {listed[0]}"
+    return ok, note
+
+
 def beyond_dump1090(message: Message) -> bool:
     """True if the frame ends past the part of the recording dump1090 decoded."""
     end = message.start + DATA_OFFSET + 2 * message.accepted.frame.n_bits
@@ -188,12 +245,18 @@ def compare(mode: str, mag, starts) -> tuple[str, dict[str, int]]:
         )
     counts["missing_by_class"] = dict(classes)
     out += ["", "### Extra inside the region dump1090 decoded (our start: evidence)", ""]
+    unexplained = 0
     for i in inside:
         m = messages[i]
+        ok, note = explain_extra(mag, m, mode)
+        unexplained += not ok
+        timing = "" if m.timing_offset is None else f", timing re-read at {m.timing_offset:+.2f}"
         out.append(
             f"- start {m.start} `{m.accepted.frame.hex}` DF{m.accepted.frame.df}, "
-            f"{m.accepted.how}; {overlapping_golden(m.start, starts)}"
+            f"{m.accepted.how}{timing}; {overlapping_golden(m.start, starts)}; "
+            f"**{'explained' if ok else 'UNEXPLAINED'}**: {note}"
         )
+    counts["extra_unexplained_inside_decoded_region"] = unexplained
     out += [
         "",
         f"### Extra beyond sample {DUMP1090_DECODED_SAMPLES:,} (dump1090 never decoded this part)",
@@ -224,9 +287,13 @@ def compare_tail(
         out.append(f"- padded golden line {line} `{padded[line]}`: **{cls}**; {why}")
     for j in extra:
         m = tail[j]
+        timing = "" if m.timing_offset is None else f", timing re-read at {m.timing_offset:+.2f}"
+        fails = dump1090_preamble_failures(mag, m.start)
+        pulses = ", ".join(f"{float(mag[m.start + k]):.1f}" for k in (0, 2, 7, 9))
         out.append(
             f"- **extra** at start {m.start} `{m.accepted.frame.hex}` DF{m.accepted.frame.df}, "
-            f"{m.accepted.how}; {overlapping_golden(m.start, tail_starts)}"
+            f"{m.accepted.how}{timing}; {overlapping_golden(m.start, tail_starts)}; "
+            f"pulses {pulses}; dump1090 preamble conditions failing: {', '.join(fails) or 'none'}"
         )
     counts = {
         "tail_ours": len(tail),

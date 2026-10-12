@@ -163,10 +163,22 @@ at the first 5 (the DF) to learn the real length, and keep that many. If any of 
 equal halves, the frame is dropped, because that bit carries no information. Candidates are tried in order. Once a
 message is accepted, candidates that start inside it are skipped (decision #12).
 
-**What this plain rule misses.** At 23 of the 217 golden messages, no start sample gives the golden bits with this
-comparison (`tests/golden/modes1_starts.txt`, flag `approximate`). dump1090 decoded those with extra rules not in
-the Riddle: chiefly a retry that adjusts the samples for a signal that arrives between two sample instants
-("phase correction"). This is the open question at checkpoint B (`docs/phase4-golden-report.md`).
+**What this plain rule misses, and the timing re-read.** At 23 of the 217 golden messages, no start sample gives the
+golden bits with this plain comparison (`tests/golden/modes1_starts.txt`, flag `approximate`). The reason is *timing*:
+- **The problem.** A pulse lasts 0.5 µs, exactly one sample, but it rarely starts exactly on a sample instant. If it
+  arrives, say, a third of a sample early, a third of its energy lands in the sample *before*. So "first sample louder
+  than second" starts comparing the wrong things.
+- **The fix** (`src/decoder/timing.py`, decision #16). When the plain read is rejected, look at the preamble again. Its
+  pulses are known, and the samples right next to them should be quiet, so any energy there spilled over from a pulse.
+  The share that spilled after the pulses versus before them gives the offset, as a fraction of a sample. Then re-read
+  every bit by adding up each half-bit's energy where the pulse actually fell: mostly its own sample, plus that fraction
+  of the neighbour it spilled into.
+- **Hypotheses.** Try the estimate first, then a few fixed offsets (±0.25, ±0.5), nearest first. Every re-read still has
+  to pass the same CRC and acceptance rules as a plain read.
+- **Result on `modes1.bin`.** Missing messages drop from 23 to 4 (no-fix) and from 20 to 1 (default). The re-read also
+  finds 3 messages dump1090 itself missed. They're listed with their evidence in `tests/golden/known_extras.txt`.
+- **Why not just shift every sample by half a step?** That throws away the sample holding most of a pulse, and compares
+  each bit against the next bit's sample. It made a message that was fine worse.
 
 Already built at checkpoint A: the **frame length** (`src/decoder/frame.py`, `frame_length`). Once the first 5 bits
 (the DF) are read, the DF alone says how long the frame is. DF 16 to 21 are 112 bits and everything else is 56, which is
