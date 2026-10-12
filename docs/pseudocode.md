@@ -542,7 +542,8 @@ I lean towards (i). It keeps `--no-fix` honest, and leaves the no-fix target to 
 
 ## Stage 3d (proposed, step a2): sub-sample timing re-read
 
-*Status: pseudocode for review. Not built.* Our own design. The linear-interpolation diagnostic from checkpoint B is
+*Status: approved for building (2026-10-12), with the per-mode false-accept bound, the recently-seen note and the
+known-extras file added below.* Our own design. The linear-interpolation diagnostic from checkpoint B is
 not this design. All numbers come from a throwaway prototype (outside the repo, not decoder code) run on the
 **first 262,144 samples and scored against the first 217 golden lines only**. The tail is a holdout and wasn't run.
 They're **predictions** until the step is built and `scripts/compare_golden.py` measures it.
@@ -593,6 +594,8 @@ it doesn't arise here. This is how line 212 (DF field only) is recovered.
 
 **The recently-seen list.** A re-read frame that passes with remainder 0 adds its address, like any clean frame. dump1090
 also lists addresses from frames recovered by its phase-correction retry. Repaired frames still don't add theirs.
+**Risk:** a *falsely* accepted re-read frame would poison the list. Its address would then let DF 0/4/5/20/21 and DF 11
+interrogator-ID frames through for 60 seconds. We match dump1090 for now and revisit this with live data in Phase 5.
 
 **Predicted effect on the first 217 lines** (prototype, `H = 5`, first passing hypothesis wins):
 
@@ -620,18 +623,18 @@ also lists addresses from frames recovered by its phase-correction retry. Repair
 
 - **They look like real transmissions dump1090 missed.** All three have strong pulses (34 to 81 against a noise median of 3). The two DF 11 frames fail the same dump1090 condition as the tail extra
   at 314,791 (decision #14).
-- **But decision #8 allows zero extras.** As written, these block the dongle threshold. I'm not changing decision #8 here; that's your call (see draft decision #15).
+- **Known-extras file.** Decision #8 (revised) allows only *explained* extras, so these go in `tests/golden/known_extras.txt`
+  (start, hex, mode, reason), together with line 128's other no-fix reading. The golden test fails on any extra inside the decoded
+  region that isn't listed there, or that doesn't meet decision #8's criteria.
 
-**False accepts.** Each hypothesis is one acceptance trial.
-- **Trials:** in the first 262,144 samples the prototype made **52** (no-fix) and **41** (default).
-- **Per trial:** a wrong frame passes with probability at most about `(1 + 80 + L) × 2^-24`, where L is the number of listed
-  addresses (1 here):
-  - remainder exactly 0: 1 value;
-  - a DF 11 interrogator ID below 80 for a listed address: 80 values;
-  - address parity matching a listed address: L values.
+**False accepts.** Each hypothesis is one acceptance trial. In the first 262,144 samples the prototype made **52** trials
+(no-fix) and **41** (default). Each trial goes through the same `accept()`, so the bound depends on the mode. L is the number
+of listed addresses (1 here).
 
-  That's about 4.9 × 10^-6 per trial.
-- **Expected false accepts: 52 × 4.9 × 10^-6 ≈ 2.5 × 10^-4.**
+| Mode | Remainders that a wrong frame could land on and be accepted | Per trial | Expected false accepts |
+|---|---|---|---|
+| no-fix | remainder 0 (1); DF 11 interrogator ID below 80 for a listed address (80); address parity to a listed address (L) | about (1 + 80 + L) × 2^-24 ≈ 4.9 × 10^-6 | 52 trials ≈ **2.5 × 10^-4** |
+| default | as no-fix, plus every one-bit repair, **which needs no listed address**: 107 repairable positions in a 112-bit frame (up to 51 in a 56-bit frame) | about (1 + 107 + 80 + L) × 2^-24 ≈ 1.1 × 10^-5 | 41 trials ≈ **4.6 × 10^-4** |
 - **Trying all 5 hypotheses and rejecting conflicts** found no conflicts on these lines, but costs about 2.7 times the trials (140). So
   first-pass is proposed.
 - **Live caveat:** as with a1, live traffic multiplies the rejected candidates and the listed addresses (L), so the rate must be

@@ -170,6 +170,18 @@ One entry per real choice. Status is **Draft** until approved, then **Approved**
   analog signals, where dump1090 uses tuned tricks that aren't in the Riddle. Allowing no extra messages means the
   decoder never outputs anything dump1090 rejected. Requiring every miss to be explained keeps it honest without requiring a copy.
   The 10-message (about 5%) limit is the threshold for buying the dongle.
+- **Revision, 2026-10-12 (approved before step a2 was built): "zero *unexplained* extras".** The stage 3d prototype had
+  already shown 3 extras inside the decoded region (samples 43,313, 52,744 and 129,115) that look like real transmissions
+  dump1090 missed, plus line 128's other no-fix reading. So the extras rule becomes **zero unexplained extras**. An extra
+  is explained only if **all four** hold:
+  - **(a)** it's CRC-valid by remainder 0 on DF 11/17/18, or by address parity to a listed address. An extra accepted
+    only by the interrogator-ID rule or by repair is *unexplained*;
+  - **(b)** all four preamble pulses are at or above the signal floor (decision #10);
+  - **(c)** the report names the dump1090 condition, or another documented reason, that rejects or misreads it;
+  - **(d)** it's listed in `tests/golden/known_extras.txt` (start, hex, mode, reason).
+
+  The 10-miss limit and the rule that every miss is explained stay as they are. The holdout tail (decision #13) is reported
+  separately and nothing is tuned on it.
 
 ## #9: Never repair the first 5 bits (the DF), for either frame length
 
@@ -274,8 +286,9 @@ One entry per real choice. Status is **Draft** until approved, then **Approved**
 ## #15: Gate the dongle threshold on default mode; keep reporting no-fix
 
 - **Date:** 2026-10-12
-- **Status:** Draft, pending approval
-- **Decision:** Decision #8's dongle threshold (at most 10 missing, every miss explained, zero extras) is measured against the
+- **Status:** Withdrawn (2026-10-12). It's moot, because both modes are predicted to meet the miss limit with step a2, so decision
+  #8 keeps gating on both modes.
+- **Decision (as drafted):** Decision #8's dongle threshold (at most 10 missing, every miss explained, zero extras) is measured against the
   **default** (fix-on) golden file, because default mode is what will run live. The no-fix comparison is still run and
   reported every time, but doesn't gate the purchase.
 - **Alternatives:**
@@ -289,3 +302,22 @@ One entry per real choice. Status is **Draft** until approved, then **Approved**
     strong pulses; two fail dump1090's own preamble condition).
   - Under decision #8's zero-extras rule these would still block the threshold in *either* mode. So this decision doesn't
     settle the extras question, which needs its own decision once a2 is built and measured.
+
+## #16: Build step a2, the sub-sample timing re-read; defer step a1
+
+- **Date:** 2026-10-12
+- **Status:** Approved (stage 3d design approved for building; this entry records what was built)
+- **Decision:** When `accept()` rejects a candidate's plain read, estimate the timing offset from the preamble's spill-over and
+  re-read the bits with energy windows that follow the pulses (`src/decoder/timing.py`, `docs/pseudocode.md` stage 3d). Five
+  hypotheses are tried: the estimate, then ±0.25 and ±0.5, nearest first, and the first that `accept()` takes wins. This runs
+  in both modes. Step a1 (CRC-assisted bit flipping, stage 3c) isn't built: after a2 it added nothing on the first 217 lines.
+- **Alternatives:** step a1 alone (predicted 23 → 18 in default, never in no-fix); a fixed half-sample shift (made line 185 worse);
+  trying all hypotheses and rejecting conflicts (no conflicts seen, about 2.7 times the CRC trials).
+- **Measured (first 217 lines, decided only on these):**
+  - **no-fix:** missing 23 → 4 (128, 156, 174, 178);
+  - **default:** missing 20 → 1 (174);
+  - **extras inside the decoded region:** 4 (no-fix) and 3 (default), all explained under decision #8 (revised);
+  - **holdout tail, untouched by tuning:** 66/66 (no-fix) and 67/67 (default) matched, with 2 extras each.
+- **Cost:** about 2.5 ms extra on `modes1.bin` (24 → 27 ms). The decoder still runs at about 6.7 times real time on one strong aircraft.
+- **Risk:** a falsely accepted re-read frame would add its address to the recently-seen list. We match dump1090 here and
+  revisit with live data in Phase 5.
