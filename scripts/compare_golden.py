@@ -353,6 +353,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--report", type=Path, help="write the full markdown report here")
     args = parser.parse_args()
+    speed = speed_section() if args.report else ""  # first, so nothing else runs alongside it
     mag = magnitude(load_iq(REPO / "data" / "modes1.bin"))
     starts = fixture()
     sections, all_counts = [], {}
@@ -363,7 +364,6 @@ def main() -> None:
         all_counts[mode] = counts
     if args.report:
         level1 = run_level1_tests()
-        speed = speed_section()
         header = [
             "# Phase 4 golden comparison",
             "",
@@ -428,27 +428,10 @@ def decision8_status(counts: dict[str, dict], level1: str) -> str:
 
 
 def speed_section() -> str:
-    """End-to-end speed and a per-stage breakdown (scripts/measure_speed.py)."""
-    from measure_speed import RECORDING, best_time, stage_breakdown
+    """The project's single speed method (scripts/measure_speed.py), run before anything else."""
+    from measure_speed import SESSIONS, as_markdown, measure
 
-    samples = load_iq(RECORDING).size // 2
-    rows = ["## Speed", "", f"`modes1.bin`: {samples:,} samples = {samples / 2e6:.3f} s of radio."]
-    rows += ["", "| Mode | Timing re-read | Best of 10 | Real-time factor |", "|---|---|---|---|"]
-    for fix in (False, True):
-        for reread in (False, True):
-            seconds, _count = best_time(fix, reread)
-            rows.append(
-                f"| {'default' if fix else 'no-fix'} | {'on' if reread else 'off'} | "
-                f"{seconds * 1000:.1f} ms | {samples / seconds / 2e6:.1f}x |"
-            )
-    rows += ["", "Per stage, default mode with the re-read on (best of 10):", ""]
-    rows += [f"- {name}: {ms:.1f} ms" for name, ms in stage_breakdown().items()]
-    rows += [
-        "",
-        "Caveat: one strong aircraft. Live traffic has many more candidates, and the decode loop",
-        "(Python, per candidate) grows with them; measure on my own recordings (ROADMAP Phase 5).",
-    ]
-    return "\n".join(rows)
+    return as_markdown([measure() for _ in range(SESSIONS)])
 
 
 if __name__ == "__main__":

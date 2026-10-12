@@ -6,31 +6,31 @@ The tail after that is a holdout, reported per mode below and never tuned on.
 
 ## Decision #8 dongle conditions
 
-- **Level 1, bit-level stages 100% on the golden hex:** `pytest tests/test_golden_bitlevel.py tests/test_golden_fields.py`: 12 passed in 0.16s
+- **Level 1, bit-level stages 100% on the golden hex:** `pytest tests/test_golden_bitlevel.py tests/test_golden_fields.py`: 12 passed in 0.20s
 - **nofix:** missing 4 (limit 10: met); misses explained 4/4 (met); unexplained extras inside the decoded region 0 (met); holdout tail: 66/66 matched, 2 extra (reported only)
 - **default:** missing 1 (limit 10: met); misses explained 1/1 (met); unexplained extras inside the decoded region 0 (met); holdout tail: 67/67 matched, 2 extra (reported only)
 - **Speed measurement reported:** yes, see below.
 
 ## Speed
 
-`modes1.bin`: 356,868 samples = 0.178 s of radio.
+Method (`scripts/measure_speed.py`): `decode_file()` end to end (read file, magnitude, preamble candidates, bits with the timing re-read, CRC/repair/acceptance; not Python start-up, field decoding or printing). Per session: one warm-up run, then 20 rounds, each timing all four configurations once (interleaved). 3 sessions back to back; the machine's speed drifts between sessions, so the range across sessions is the number to quote. Recording: 356,868 samples = 178.4 ms of radio. Machine: AMD64 Family 25 Model 117 Stepping 2, AuthenticAMD, Python 3.14.4.
 
-| Mode | Timing re-read | Best of 10 | Real-time factor |
-|---|---|---|---|
-| no-fix | off | 33.4 ms | 5.3x |
-| no-fix | on | 33.4 ms | 5.3x |
-| default | off | 33.0 ms | 5.4x |
-| default | on | 36.2 ms | 4.9x |
+| Mode | Timing re-read | Best per session (ms) | Median per session (ms) | Real-time factor range |
+|---|---|---|---|---|
+| no-fix | off | 35.6, 36.9, 25.1 | 53.0, 53.5, 30.3 | 4.8x to 7.1x |
+| no-fix | on | 37.5, 37.8, 26.7 | 54.7, 58.8, 32.1 | 4.7x to 6.7x |
+| default | off | 38.3, 38.0, 24.8 | 52.4, 55.3, 31.0 | 4.7x to 7.2x |
+| default | on | 38.2, 42.5, 27.6 | 54.8, 55.3, 35.2 | 4.2x to 6.5x |
 
-Per stage, default mode with the re-read on (best of 10):
+Per stage, default mode with the re-read on (best per session, ms):
 
-- read file (load_iq): 0.4 ms
-- samples to magnitude: 5.6 ms
-- preamble candidates: 21.8 ms
-- bits, timing re-read, CRC, acceptance (per candidate, Python): 7.7 ms
+- read file (load_iq): 0.6, 0.2, 0.2
+- samples to magnitude: 5.9, 4.4, 4.5
+- preamble candidates: 22.7, 13.7, 15.6
+- bits, timing re-read, CRC, acceptance (Python loop): 10.8, 8.2, 9.1
 
-Caveat: one strong aircraft. Live traffic has many more candidates, and the decode loop
-(Python, per candidate) grows with them; measure on my own recordings (ROADMAP Phase 5).
+Caveat: one strong aircraft. Live traffic has many more candidates, and the Python loop
+grows with them; measure on my own recordings (ROADMAP Phase 5).
 
 **Observation (not proven):** every extra found by the timing re-read arrives *early* (offset about -0.3 to -0.4 of a sample), and most extras fail dump1090's preamble condition "sample 6 below pulse 0". Early arrival spills pulse 7 into sample 6, so this looks like a systematic dump1090 blind spot for early-arriving frames. Six frames from one aircraft can't prove it; see `docs/decoder-notes.md` stage 3 and `tests/golden/known_extras_tail.txt`.
 
