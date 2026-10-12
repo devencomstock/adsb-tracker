@@ -33,7 +33,8 @@ up and confirmed by a test; decisions #1 to #3 are approved; no secrets or data 
 ## Phase 1: Learn the format (days 1-3)
 
 - [x] Read The 1090 Megahertz Riddle (Mode S basics, DF17 layout, identification, CRC, position, velocity)
-- [ ] Write up in `docs/decoder-notes.md` what each DF17 field means, in my own words
+- [x] Write up in `docs/decoder-notes.md` what each DF17 field means, in my own words
+      (the reference itself is `docs/mode-s-primer.md`; `decoder-notes.md` points to it)
 - [x] Hand-decode at least one airborne position and one velocity message as practice, confirmed with pyModeS
       (see `docs/mode-s-primer.md`, `scripts/phase1_worked_examples.py`, `tests/test_phase1_examples.py`)
 

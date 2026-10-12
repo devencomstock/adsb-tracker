@@ -1,5 +1,7 @@
 # Decoder notes
 
+> The DF17 field-by-field reference (frame layout, type codes, identification, CRC, position, velocity) lives in [mode-s-primer.md](mode-s-primer.md).
+
 Plain-English notes for each decoder stage, written so I can follow and explain them.
 Primary source: Junzi Sun, *The 1090 Megahertz Riddle*, https://mode-s.org/1090mhz/.
 pyModeS and dump1090 are answer keys only.
