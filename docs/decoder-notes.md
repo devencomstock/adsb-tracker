@@ -133,10 +133,35 @@ To be filled in during Phases 1-4. The Phase 3 pseudocode, with a hand trace of 
 stage, is in [pseudocode.md](pseudocode.md).
 
 ### 1. Samples to magnitude
+
+Code: `src/decoder/samples.py`. Read the file's bytes, drop a trailing half sample if there is one, subtract 127
+from every byte, and pair them up as (I, Q). Each pair's distance from the center, `sqrt(I² + Q²)`, is how much
+radio energy arrived in that half microsecond. Phase is thrown away because Mode S only cares *when* a pulse
+arrives. The whole file is converted at once with NumPy, with no Python loop. On `modes1.bin` the typical
+(median) magnitude is 3.0 and real pulses are about 25 to 150.
+
 ### 2. Preamble detection
+
+Code: `src/decoder/preamble.py`. A message begins with four pulses at sample offsets 0, 2, 7 and 9. Every other
+sample up to offset 15 should be quiet. A start sample is a **candidate** if its weakest pulse is louder than its
+loudest quiet sample, and at least `SIGNAL_FLOOR` (9.0, decision #10). This is stricter than dump1090, which
+doesn't test the samples right next to a pulse. On this recording, all 194 golden messages with an exact start
+pass it, and their weakest pulse is never below 24.4.
+
 ### 3. Pulses to bits
 
-*(Checkpoint B.)* Already built: the **frame length** (`src/decoder/frame.py`, `frame_length`). Once the first 5 bits
+Code: `src/decoder/bits.py` and `src/decoder/pipeline.py`. After the preamble, each bit takes two samples. A pulse
+in the first one means 1, in the second one 0, so the bit is "first sample louder than second". Read 112 bits, look
+at the first 5 (the DF) to learn the real length, and keep that many. If any of the first 56 bits had two exactly
+equal halves, the frame is dropped, because that bit carries no information. Candidates are tried in order. Once a
+message is accepted, candidates that start inside it are skipped (decision #12).
+
+**What this plain rule misses.** At 23 of the 217 golden messages, no start sample gives the golden bits with this
+comparison (`tests/golden/modes1_starts.txt`, flag `approximate`). dump1090 decoded those with extra rules not in
+the Riddle: chiefly a retry that adjusts the samples for a signal that arrives between two sample instants
+("phase correction"). This is the open question at checkpoint B (`docs/phase4-golden-report.md`).
+
+Already built at checkpoint A: the **frame length** (`src/decoder/frame.py`, `frame_length`). Once the first 5 bits
 (the DF) are read, the DF alone says how long the frame is. DF 16 to 21 are 112 bits and everything else is 56, which is
 dump1090's rule (`dump1090.c` 746-753). The Riddle says DF 24 is also long; we follow dump1090 here because it's the answer key.
 

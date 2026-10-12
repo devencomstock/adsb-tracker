@@ -188,3 +188,43 @@ One entry per real choice. Status is **Draft** until approved, then **Approved**
   looks like a side effect of reusing the 112-bit table. **It can't affect `modes1.bin`:** the bits dump1090 repaired
   in the default file are 66, 55, 55, 61, 99 and 5, none of them below 5. If a future recording shows a difference, it would
   appear as a default-run miss under decision #8 and be explained there.
+
+## #10: Preamble signal floor of 9.0
+
+- **Date:** 2026-10-12
+- **Status:** Draft, pending approval
+- **Decision:** A preamble candidate's weakest pulse must have magnitude of at least 9.0 (`SIGNAL_FLOOR` in
+  `src/decoder/pipeline.py`; magnitude units are 0 to about 180).
+- **Measured on `modes1.bin`:**
+  - The median magnitude is 3.0.
+  - At the 194 golden messages with an exact start, the weakest pulse is never below 24.4 (5th percentile 27.0).
+  - All 194 pass the preamble test.
+- **Alternatives:** no floor (relies on the shape test alone, so more noise reaches the CRC); a floor tied to the
+  measured noise level per buffer (better for live use, but more to build and test).
+- **Why:** 9.0 is three times the noise median and still well below the weakest real pulse, so it can't cause a miss here.
+  Revisit with my own recordings, where signal levels will differ.
+
+## #11: Start-sample fixture built with dump1090 prefix search
+
+- **Date:** 2026-10-12
+- **Status:** Draft, pending approval
+- **Decision:** `tests/golden/modes1_starts.txt` gives each golden no-fix line's start sample. It's built in two steps:
+  1. `scripts/dump1090_prefix_search.sh nofix all` (WSL) finds the shortest prefix after which dump1090 outputs the line.
+  2. `scripts/make_start_fixture.py` refines it by searching estimate−8 to estimate+32 for the start where plain bit
+     comparison reproduces the golden hex.
+
+  Lines with such a start are flagged `exact` (194); the others are `approximate` (23). Tests assert exact starts only.
+  Nothing under `src/decoder/` reads the fixture.
+- **Alternatives:** matching golden hex against the recording alone (can't place frames dump1090 decoded with phase
+  correction, and confuses repeated identical messages); reading dump1090's internal buffer offsets (needs its debug code).
+- **Why:** It uses dump1090 only as a black box, and every `exact` start is checked against the recording.
+
+## #12: Skip candidates that start inside an accepted message
+
+- **Date:** 2026-10-12
+- **Status:** Draft, pending approval
+- **Decision:** After a message is accepted, preamble candidates that begin before its last sample are ignored.
+- **Alternatives:** try every candidate (the same frame could be accepted twice from neighboring start samples, and
+  bits inside a real message can look like a preamble).
+- **Why:** One transmission can't contain another. dump1090 also jumps past a message once its CRC passes (`dump1090.c` 1769-1771).
+  On `modes1.bin` this rule causes no misses (none of the 23 misses is "skipped: inside our message").
