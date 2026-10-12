@@ -72,3 +72,101 @@ One entry per real choice. Status is **Draft** until approved, then **Approved**
 - **Why:** Upstream can change at any time, and a change to its demodulator would silently move the
   answer key. Pinning makes "matches dump1090" mean one exact,
   reproducible thing.
+
+## #6: Write the decoder in Python with NumPy (not C)
+
+- **Date:** 2026-10-12
+- **Status:** Approved
+- **Decision:** Write the Phase 4 decoder in Python 3 with NumPy. Do the per-sample work (magnitude, and preamble
+  screening where possible) as whole-array NumPy operations. The per-candidate steps (bits, CRC, routing) stay
+  plain Python functions.
+- **Alternatives:**
+  - **C** (like dump1090).
+    - Pros: fastest, real-time live decoding is proven possible by dump1090 itself, and it's close to how receivers are built.
+    - Cons: slower to write and debug, a second toolchain on Windows (WSL), harder to unit-test next to pyModeS,
+      and the temptation to drift toward dump1090's code, which the project rules forbid copying.
+  - **Python with no NumPy.** Simplest, but a Python loop over every sample is very slow for 2 million samples per second.
+  - **Python with a compiler such as Numba or Cython.** Faster loops, but it's a new dependency and needs approval. Deferred
+    until a measurement shows it's needed.
+- **Why:** Phase 4 runs offline on a 0.18 s recording, where correctness and readability matter and speed doesn't.
+  Python keeps every stage small, testable with pytest, and easy to compare against pyModeS and the golden files.
+  Live use with the dongle means 2 MHz × 2 bytes = 4 MB/s of input. Whether Python + NumPy keeps up is
+  **unmeasured**. Before buying the dongle (decision #8), time the decoder on `modes1.bin` and report samples per second
+  against the 2,000,000 needed. If it's too slow, revisit this decision.
+- **Stretch idea (not part of Phase 4):** port only the demodulator (stages 1-3) to C later, as a learning exercise or
+  for live speed. It would be written from my own pseudocode and checked against the same golden files and the Python version.
+
+## #7: "Recently seen" uses recording time with a 60-second window
+
+- **Date:** 2026-10-12
+- **Status:** Approved
+- **Decision:** The list of recently seen ICAO addresses (used to accept DF 11 frames that carry an interrogator ID and the
+  address-parity formats DF 0/4/5/16/20/21/24) timestamps each entry with **recording time**,
+  `sample index / 2,000,000` seconds. An entry counts as recent for **60 seconds**. Only DF 11/17/18 frames with
+  CRC remainder 0 and no repaired bit add an entry, matching dump1090 (`dump1090.c` 1197-1200 at `efe64db`).
+- **Alternatives:**
+  - **A: seen anywhere earlier in the run, never expires.** Reproduces the golden output, but in live use an address
+    would stay trusted forever.
+  - **C: wall clock with 60 s, exactly like dump1090** (66, 910-924). Test results would depend on machine speed, so a
+    slow test machine could expire entries that dump1090 kept.
+- **Why:** On `modes1.bin` (0.178 s long) A, B and C all reduce to "seen earlier in the file". That's why B reproduces the
+  no-fix golden output. Replaying the golden file under this rule accepts all 20 interrogator-ID DF 11 frames and all
+  34 address-parity frames, with zero exceptions. B also keeps dump1090's 60 s window for long recordings and live use, and
+  stays deterministic. **Verification in Phase 4:**
+  1. The decoder's no-fix message set must equal the golden file.
+  2. Disabling the list must remove exactly those 54 messages.
+- **Default (fix-on) file:** the same rule also explains it, with 52 list-dependent messages and 0 exceptions.
+  Repaired frames never add an address, so the default run has 159 list sources against 163 in no-fix:
+  - 4 frames came out clean in the no-fix run but needed a one-bit repair in the default run.
+  - 2 DF 11 frames read as interrogator ID 1 in the no-fix run were repaired (bit 55) in the default run, because dump1090
+    repairs before applying the interrogator-ID rule.
+
+  Details are in `docs/pseudocode.md` stage 4c.
+- **Limit:** `modes1.bin` contains one aircraft, so it barely tests this rule. A longer recording of my own will test it properly.
+
+## #8: What "the decoder matches dump1090" means
+
+- **Date:** 2026-10-12
+- **Status:** Approved
+- **Decision:** Two levels, both against the pinned golden files (`tests/golden/`):
+  1. **Bit-level stages (CRC, frame length, routing, output fields): 100% on the golden hex.** Fed the 217 lines of
+     `modes1_raw_nofix.txt`, the decoder must:
+     - accept all 217;
+     - assign the same DF and length to each;
+     - route them into exactly the counts in `docs/pseudocode.md`;
+     - reproduce every raw line byte for byte;
+     - match the decoded fields (DF, ICAO, CA, TC, altitude, F flag, CPR lat/lon) in `modes1_decoded_nofix.txt`.
+     No exceptions are allowed.
+  2. **Demodulator (stages 1-3): judged on the no-fix message set.** Run on all of `modes1.bin` and report three
+     lists: matched, missing (in golden but not ours) and extra (ours but not golden).
+     - **Extra messages: zero allowed.** Every message the decoder outputs must be in the golden set.
+     - **Missing messages: every one must have a written explanation.** Typical causes are dump1090's phase-correction
+       retry, its "hold the previous bit" rule, its contrast filter, or its looser preamble test. Each explanation must be
+       backed by evidence such as the message's samples and which check it failed.
+     - **Expected misses.** Against the no-fix file, up to 4 messages (golden lines 112, 185, 188, 193) may be missed until
+       a phase-correction retry like dump1090's is implemented. dump1090's default run had to repair one bit in each of
+       them, and they appear clean in the no-fix file only because dump1090 re-read them (`docs/pseudocode.md` stage 4c).
+       They count toward the 10-message limit, and each still needs its written explanation.
+     - **Against the default file**, single-bit repair should recover those frames, but **only where our demodulator reads
+       at most one bit wrong.** With a plain half-versus-half comparison:
+       - lines 185, 188 and 193 have exactly one wrong bit (the one dump1090 repaired);
+       - line 112 has three (bits 66, 85, 110), which single-bit repair can't fix.
+
+       So line 112 may stay a documented miss against the default file too, unless the demodulator reads bits 85 and 110 correctly.
+- **Buy the dongle when:**
+  - level 1 passes at 100%;
+  - level 2 has **zero extra messages**, **at most 10 missing (95% or more of 217 matched)**, and **every miss explained**;
+  - the speed measurement in decision #6 has been reported.
+- **Go back and adjust the demodulator when:**
+  - any extra message appears;
+  - any miss is unexplained;
+  - more than 10 messages are missing;
+  - or a message is found at a golden start sample but its bits differ from the golden hex (a stage 3 bug, not a heuristic gap).
+- **Alternatives:**
+  - Require an exact 217/217 match. This would force reproducing every dump1090 heuristic, which would push the decoder toward
+    copying it.
+  - "Close enough" with no explanation required. This would hide real bugs.
+- **Why:** The bit-level stages are pure logic, so anything less than 100% is a bug. The demodulator works on noisy
+  analog signals, where dump1090 uses tuned tricks that aren't in the Riddle. Allowing no extra messages means the
+  decoder never outputs anything dump1090 rejected. Requiring every miss to be explained keeps it honest without requiring a copy.
+  The 10-message (about 5%) limit is the threshold for buying the dongle.

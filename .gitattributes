@@ -1,3 +1,6 @@
 # Golden answer-key files are compared byte for byte and their sha256 is recorded,
 # so git must never convert their line endings (core.autocrlf would otherwise do so on Windows).
 tests/golden/* -text
+
+# Shell scripts run in WSL bash, which fails on CRLF line endings.
+*.sh text eol=lf

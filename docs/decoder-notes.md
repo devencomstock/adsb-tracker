@@ -129,7 +129,8 @@ In plain words:
 
 ## Decoder stages
 
-To be filled in during Phases 1-4.
+To be filled in during Phases 1-4. The Phase 3 pseudocode, with a hand trace of a real message through each
+stage, is in [pseudocode.md](pseudocode.md).
 
 ### 1. Samples to magnitude
 ### 2. Preamble detection

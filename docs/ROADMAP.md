@@ -54,10 +54,10 @@ and the sample format (sample rate, I/Q layout, byte encoding) is documented wit
 
 ## Phase 3: Pseudocode before any code (days 4-6)
 
-- [ ] Pseudocode for: samples to magnitude, preamble detection, pulses to bits, CRC check,
-      routing by message type, output fields (one section each in `docs/decoder-notes.md`)
-- [ ] Log the Python-vs-C choice in `docs/decisions.md`
-- [ ] Define the golden-comparison method (which fields, what counts as a match)
+- [x] Pseudocode for: samples to magnitude, preamble detection, pulses to bits, CRC check,
+      routing by message type, output fields (one section each in `docs/pseudocode.md`)
+- [x] Log the Python-vs-C choice in `docs/decisions.md` (#6)
+- [x] Define the golden-comparison method (which fields, what counts as a match) (#8)
 
 **Definition of done:** every decoder stage has reviewed pseudocode and a plain-English explanation,
 and the language decision is approved.
