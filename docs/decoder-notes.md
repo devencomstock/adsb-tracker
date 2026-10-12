@@ -135,6 +135,55 @@ stage, is in [pseudocode.md](pseudocode.md).
 ### 1. Samples to magnitude
 ### 2. Preamble detection
 ### 3. Pulses to bits
+
+*(Checkpoint B.)* Already built: the **frame length** (`src/decoder/frame.py`, `frame_length`). Once the first 5 bits
+(the DF) are read, the DF alone says how long the frame is. DF 16 to 21 are 112 bits and everything else is 56, which is
+dump1090's rule (`dump1090.c` 746-753). The Riddle says DF 24 is also long; we follow dump1090 here because it's the answer key.
+
 ### 4. CRC check
+
+Code: `src/decoder/crc.py`, `src/decoder/recent.py`, `src/decoder/accept.py`.
+
+**The remainder.** Treat the frame as one long binary number and divide it by a fixed 25-bit number (the generator
+`0x1FFF409`), using XOR instead of subtraction. What's left is a 24-bit remainder. For an ADS-B frame (DF 17) the sender
+chose the last 24 bits so that an intact frame leaves remainder 0. So "remainder 0" means "arrived intact".
+
+**Three families of frames**, because the last 24 bits mean different things in different formats:
+- **DF 11, 17, 18: plain parity.** Remainder 0 means intact. DF 17 can be checked entirely on its own.
+- **DF 11 also carries an interrogator ID.** In an all-call reply, the parity is overlaid with the ID of the
+  ground radar that asked, so an intact reply's remainder *is* that ID. In `modes1.bin` that's 60 for 18 replies.
+  dump1090 accepts a nonzero remainder as an ID only if it's below 80 and the aircraft was seen recently.
+- **DF 0, 4, 5, 16, 20, 21, 24: address parity.** The parity is overlaid with the aircraft's own ICAO address, so the
+  remainder of an intact frame *is* the address. Such a frame can't prove itself; it's believed only if that
+  address was recently seen in a clean frame.
+
+**The recently-seen list.** An ICAO address goes on the list only from a DF 11/17/18 frame with remainder 0 that needed
+no repair. Trust has to start from frames that proved themselves. An entry stays valid for 60 seconds of *recording*
+time (sample index ÷ 2,000,000), not wall-clock time, so tests give the same answer on any machine (decision #7).
+
+**Single-bit repair** (only with error correction on). Because the CRC is linear, flipping one bit always changes the
+remainder by the same amount, whatever the rest of the message is. So each bit position has its own "fingerprint"
+remainder. If a frame's remainder equals one bit's fingerprint, flip that bit back. The repaired frame is accepted but
+doesn't go on the recently-seen list. Repair is tried before the interrogator-ID rule (that's dump1090's order). A
+flipped bit in the parity field has a fingerprint that is a power of two (1, 2, 4, ... 64 below 80), so with repair on,
+those remainders get repaired instead of being read as interrogator IDs. That's exactly why two golden lines differ
+between the no-fix and default files. The first 5 bits are never repaired (decision #9).
+
+**How it's checked** (`tests/test_golden_bitlevel.py`):
+- All 217 no-fix golden lines are accepted: 163 clean, 20 by interrogator ID (18 × 60, 2 × 1) and 34 by address parity.
+- With the list disabled, exactly 54 are rejected.
+- With repair on, the no-fix lines become the default file byte for byte (only lines 128 and 174 change).
+
 ### 5. Message routing (by DF / type code)
+
+Code: `src/decoder/routing.py`. After a frame is accepted, sort it by kind:
+- **DF first:** DF 11 is an all-call reply, DF 4/20 altitude replies, DF 5/21 identity replies, DF 0 short air-air.
+- **For ADS-B (DF 17/18), the type code next**, which is the first 5 bits of the 56-bit ME field: 1-4 identification,
+  5-8 surface position, 9-18 airborne position with barometric altitude, 19 velocity, 20-22 airborne position with
+  GNSS height, and anything else is "other".
+
+Routing comes after the CRC check so that no effort goes into frames that are noise. Checked against the golden
+counts (TC 11 = 59, TC 19 = 54, TC 4 = 7) and against the `DF` and `Extended Squitter Type` lines of the decoded
+golden file, message by message.
+
 ### 6. Output fields

@@ -170,3 +170,21 @@ One entry per real choice. Status is **Draft** until approved, then **Approved**
   analog signals, where dump1090 uses tuned tricks that aren't in the Riddle. Allowing no extra messages means the
   decoder never outputs anything dump1090 rejected. Requiring every miss to be explained keeps it honest without requiring a copy.
   The 10-message (about 5%) limit is the threshold for buying the dongle.
+
+## #9: Never repair the first 5 bits (the DF), for either frame length
+
+- **Date:** 2026-10-12
+- **Status:** Draft, pending approval
+- **Decision:** Single-bit repair (`src/decoder/crc.py`) only considers bits 5 onward, for both 56- and 112-bit frames.
+- **What dump1090 does** (read from `dump1090.c` at `efe64db`, in WSL):
+  - It builds its one-bit error table over positions 5-111 of a 112-bit frame (line 806), so it never repairs the DF of a long frame.
+  - For a 56-bit frame it shifts those positions by 56 and keeps any that land inside the frame (874-879). Table positions 56-60
+    land on bits 0-4, so **it can repair the DF of a short frame**.
+  - It reads the DF before repairing (1099) and doesn't re-read it afterwards (1112-1121). A short frame whose DF bits got
+    repaired is still handled as the DF it was first read as (11).
+- **Alternatives:** Copy dump1090's behavior exactly: repairable bits 0-55 for short frames.
+- **Why:** A wrong DF means the frame was also cut to the wrong length, so "repairing" it produces a message whose type
+  and length disagree. dump1090's own comment at 792-794 gives the same reason for excluding the DF, and the short-frame case
+  looks like a side effect of reusing the 112-bit table. **It can't affect `modes1.bin`:** the bits dump1090 repaired
+  in the default file are 66, 55, 55, 61, 99 and 5, none of them below 5. If a future recording shows a difference, it would
+  appear as a default-run miss under decision #8 and be explained there.
