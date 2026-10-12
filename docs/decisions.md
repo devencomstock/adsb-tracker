@@ -76,7 +76,7 @@ One entry per real choice. Status is **Draft** until approved, then **Approved**
 ## #6: Write the decoder in Python with NumPy (not C)
 
 - **Date:** 2026-10-12
-- **Status:** Draft, pending approval
+- **Status:** Approved
 - **Decision:** Write the Phase 4 decoder in Python 3 with NumPy. Do the per-sample work (magnitude, and preamble
   screening where possible) as whole-array NumPy operations. The per-candidate steps (bits, CRC, routing) stay
   plain Python functions.
@@ -99,7 +99,7 @@ One entry per real choice. Status is **Draft** until approved, then **Approved**
 ## #7: "Recently seen" uses recording time with a 60-second window
 
 - **Date:** 2026-10-12
-- **Status:** Draft, pending approval
+- **Status:** Approved
 - **Decision:** The list of recently seen ICAO addresses (used to accept DF 11 frames that carry an interrogator ID and the
   address-parity formats DF 0/4/5/16/20/21/24) timestamps each entry with **recording time**,
   `sample index / 2,000,000` seconds. An entry counts as recent for **60 seconds**. Only DF 11/17/18 frames with
@@ -127,7 +127,7 @@ One entry per real choice. Status is **Draft** until approved, then **Approved**
 ## #8: What "the decoder matches dump1090" means
 
 - **Date:** 2026-10-12
-- **Status:** Draft, pending approval
+- **Status:** Approved
 - **Decision:** Two levels, both against the pinned golden files (`tests/golden/`):
   1. **Bit-level stages (CRC, frame length, routing, output fields): 100% on the golden hex.** Fed the 217 lines of
      `modes1_raw_nofix.txt`, the decoder must:
@@ -143,6 +143,16 @@ One entry per real choice. Status is **Draft** until approved, then **Approved**
      - **Missing messages: every one must have a written explanation.** Typical causes are dump1090's phase-correction
        retry, its "hold the previous bit" rule, its contrast filter, or its looser preamble test. Each explanation must be
        backed by evidence such as the message's samples and which check it failed.
+     - **Expected misses.** Against the no-fix file, up to 4 messages (golden lines 112, 185, 188, 193) may be missed until
+       a phase-correction retry like dump1090's is implemented. dump1090's default run had to repair one bit in each of
+       them, and they appear clean in the no-fix file only because dump1090 re-read them (`docs/pseudocode.md` stage 4c).
+       They count toward the 10-message limit, and each still needs its written explanation.
+     - **Against the default file**, single-bit repair should recover those frames, but **only where our demodulator reads
+       at most one bit wrong.** With a plain half-versus-half comparison:
+       - lines 185, 188 and 193 have exactly one wrong bit (the one dump1090 repaired);
+       - line 112 has three (bits 66, 85, 110), which single-bit repair can't fix.
+
+       So line 112 may stay a documented miss against the default file too, unless the demodulator reads bits 85 and 110 correctly.
 - **Buy the dongle when:**
   - level 1 passes at 100%;
   - level 2 has **zero extra messages**, **at most 10 missing (95% or more of 217 matched)**, and **every miss explained**;

@@ -451,8 +451,13 @@ signal processing exists.
 8. **Preamble detection** (stage 2). Every fixture start must be a candidate.
 9. **Whole-file run.** Compare against `modes1_raw_nofix.txt` and report counts of matched, missing (in golden, not
    in ours) and extra (in ours, not in golden). Extra must be zero, and every miss must be explained (decision #8).
+   Expected: up to 4 misses (golden lines 112, 185, 188, 193) until a phase-correction retry exists. They count toward the
+   10-message limit and each needs its written explanation.
 10. **Later:** single-bit repair before the DF 11 interrogator-ID rule (stage 4c, "What Phase 4 must do"). First, the bit-level
     test: the 217 no-fix golden lines plus repair must equal `modes1_raw_default.txt`. Then the whole-file run against the default file.
+    Repair should recover lines 185, 188 and 193 (one wrong bit each under plain comparison). Line 112 has three wrong bits under
+    plain comparison (66, 85, 110), so repair alone recovers it only if the demodulator reads 85 and 110 correctly. Otherwise it stays
+    a documented miss.
 
 Each step is one small function with its own tests (CLAUDE.md). All tests run from `pytest`, and no test imports dump1090.
 pyModeS appears only in tests.
