@@ -434,6 +434,103 @@ They belong to a later tracking step. dump1090's single-message output also prin
 
 ---
 
+## Stage 3c (proposed, step a1): CRC-assisted soft-decision bit flipping
+
+*Status: pseudocode for review. Not built.* This is a response to the 23 no-fix misses at checkpoint B
+(`docs/phase4-golden-report.md`). Every number below was measured on the **first 217 golden lines only**. The 66/67
+tail lines (decision #13) are a holdout and weren't used.
+
+**Idea.** Stage 3 makes a hard 1/0 decision for each bit, but some decisions are close. When a frame fails its CRC,
+the bits most likely to be wrong are the ones whose two halves were nearly equal. So try flipping a few of those bits
+and keep a result only if the CRC then passes. The CRC acts as the referee; the confidence decides what to try first.
+
+**Input:** `mag[]`, a start sample `j`, the hard bits from stage 3 (already cut to the DF's length), the recently-seen
+list, and time `t`. **Output:** an accepted, corrected frame, or "rejected".
+
+```
+only for frames whose DF (as read) is 11, 17 or 18 and whose CRC remainder is not 0
+    (and, with repair on, that ordinary single-bit repair didn't fix)
+for each bit k from 5 to n-1:                          # never bits 0-4, the DF (decision #9)
+    confidence[k] = |mag[j+16+2k] - mag[j+17+2k]|      # how clearly the two halves differ
+weak = the K bits with the lowest confidence           # K = 10
+try flip sets in this order: every single bit in weak, then every pair, then every triple
+    (m = 3 at most; ties broken by smaller total confidence first)
+    -> at most C(10,1) + C(10,2) + C(10,3) = 175 candidates per frame
+for each candidate:
+    if crc_remainder(candidate) != 0: continue         # remainder must be exactly 0:
+                                                       # no interrogator-ID reading for a flipped frame
+    icao = candidate bits 8-31
+    if not recent.seen(icao, t): continue              # only aircraft that already proved themselves
+    collect candidate
+if exactly one candidate was collected: accept it (how = "soft decision", flipped bits recorded);
+    it does NOT add its address to the recently-seen list (like a repaired frame)
+else: reject                                           # none, or ambiguous: two corrections both pass
+```
+
+**What it can recover on the first 217 lines.** For each miss, I ranked its wrong bits among bits 5 onward from least
+to most confident at the fixture start. Absolute and relative (`|a-b|/(a+b)`) confidence gave the same ranking.
+
+| K (weakest bits) | m (max flips) | Candidates per frame | Recoverable no-fix misses |
+|---|---|---|---|
+| 8 | 2 | 36 | 3: 185, 188, 193 |
+| 8 | 3 | 92 | 4: + 112 |
+| **10** | **3** | **175** | **5: 71, 112, 185, 188, 193** |
+| 10 | 4 | 385 | 6: + 209 |
+| 16 | 4 | 2,516 | 6 (no further gain) |
+
+I'm proposing **K = 10, m = 3**. Going to m = 4 recovers one more line at 2.2 times the candidates. The other 18 misses are out of reach of
+flipping:
+- 9 of them (27, 52, 69, 128, 156, 174, 178, 207, 212) have a wrong bit inside the DF field, so they're read as a
+  different DF and never reach this step.
+- The other 9 (35, 49, 75, 78, 80, 84, 111, 157, 209) have 4 to 14 wrong bits, some of them outside the 10 least-confident.
+
+**Expected result:** no-fix 23 → **about 18** missing; default 20 → **about 18** (185, 188 and 193 are already recovered
+there by ordinary repair). **Either way that's still above 10, so (a2) would be needed.** These are predictions from bits at the fixture
+starts, not a measured run.
+
+**False accepts.** A wrong candidate passes the CRC by chance with probability about 2^-24 ≈ 6 × 10^-8. On the first
+262,144 samples, the pipeline produces **17** CRC-failing DF 11/17/18 frames, so at 175 candidates each:
+17 × 175 × 2^-24 ≈ **1.8 × 10^-4 expected false accepts** for this part of the recording (1 in about 5,600 runs).
+- **Two things make it smaller:** the recently-seen check, and rejecting the frame when two different corrections both pass.
+- **Two things make it unsafe to scale up:**
+  - The flips leave the address bits mostly untouched, so the recently-seen check is *not* an independent factor I can multiply in.
+  - Live traffic has many aircraft and far more failing frames. Count failing frames per second on my own recordings
+    before trusting this rate.
+- **For comparison:** dump1090's interrogator-ID rule accepts any remainder below 80. That's 80 times more permissive per frame, which is why flipped
+  DF 11 frames here must reach remainder exactly 0.
+
+**The DF field (line 212) and decision #9.** I propose this step **does not flip bits 0-4**, consistent with decision #9.
+A wrong DF bit also means a wrong length. Line 212's frame (true DF 17) reads as DF 25, gets cut to 56 bits, and never
+reaches this step. Allowing it would mean a different design: re-read the frame under each "DF one flip away from
+11/17/18" hypothesis at that DF's length, then run the CRC. That would be a DF-specific exception to decision #9, so it needs
+its own decision. Cost of not doing it: line 212 and line 128 (which also has a wrong DF bit) stay as misses.
+
+**An open question for you: `--no-fix`.** In dump1090, `--no-fix` turns off CRC-based correction. Its no-fix golden file
+still contains frames it recovered by *re-demodulating* (phase correction), but none recovered by flipping bits until the
+CRC passes. This step is CRC-based correction, so:
+- **(i)** if it runs only with fix on, the no-fix miss count doesn't move (23), and only default improves;
+- **(ii)** if it also runs under `--no-fix`, our "no-fix" means something different from dump1090's.
+
+I lean towards (i). It keeps `--no-fix` honest, and leaves the no-fix target to (a2), which is a demodulation change and so fits.
+
+**Golden check:**
+- Bit-level: no-fix golden lines and default golden lines must pass through unchanged, because they're already clean.
+- Unit tests:
+  - a golden frame with 1, 2 or 3 of its weakest bits inverted is recovered;
+  - a frame with an unlisted address is not;
+  - an ambiguous double pass is rejected;
+  - bits 0-4 are never flipped.
+- Whole file: re-run `scripts/compare_golden.py` in both modes, still with **0 extras** inside the decoded region. Report
+  the holdout tail separately.
+
+**Interview points:**
+- Soft versus hard decisions.
+- Why the CRC can referee a guess.
+- Why the number of guesses directly scales the false-accept rate.
+- Why "exactly one passing correction" matters.
+
+---
+
 ## Phase 4: order of work and testing plan
 
 Build **from the bits inward first**. The golden hex lets stages 4-6 be finished and verified before any
