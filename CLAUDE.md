@@ -9,7 +9,7 @@ The one question the dashboard answers: "What's that plane overhead right now, a
 Dashboard defaults: map centered on the Purdue campus, click a plane for a detail card (type, owner, altitude, speed), and highlight flagged aircraft.
 
 ## How we work
-- BUILD mode for all phases: you write the code, I review it. Follow docs/ROADMAP.md in order. Current phase: Phase 0.
+- BUILD mode for all phases: you write the code, I review it. Follow docs/ROADMAP.md in order. Current phase: Phase 2.
 - Before non-trivial changes, propose a short plan and wait for my approval.
 - The decoder is written from scratch under src/decoder/. pyModeS and dump1090 are answer keys only.
   Never import pyModeS under src/decoder/ and never copy dump1090 code.

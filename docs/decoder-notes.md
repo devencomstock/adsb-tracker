@@ -94,6 +94,37 @@ callsign='KLM1023', crc_valid=True`).
 
 ---
 
+## The test recording: `modes1.bin` sample format
+
+Sources (all at antirez/dump1090 commit `efe64db3c6ba1520291331628a33c1e208e851a6`):
+- `README.md` lines 69-72: the file must contain *"8-bit unsigned IQ samples at 2Mhz sample rate"*,
+  for example as recorded by `rtl_sdr -f 1090000000 -s 2000000 -g 50 output.bin`.
+- `dump1090.c` lines 1454-1468 (`computeMagnitudeVector`): how the bytes are actually read.
+- `dump1090.c` lines 1570-1580: the comment on what one sample means in time.
+
+In plain words:
+
+- **No header.** The file is just raw bytes from start to end, with nothing describing it.
+  `--ifile` passes the bytes straight to the demodulator (`readDataFromFile`, lines 460-500).
+- **Each byte is one unsigned 8-bit number (0-255).** dump1090 treats **127** as zero
+  (`p[j]-127`), so a byte of 127 means "no signal" on that channel, and 0 or 255 is the strongest.
+- **Bytes come in pairs: I then Q.** Even bytes are I (in-phase) and odd bytes are Q (quadrature):
+  `i = p[j]`, `q = p[j+1]`. One pair is one sample. The file starts `129 127 126 125 ...`, so the
+  first sample is I=+2, Q=0 after subtracting 127: almost silence.
+- **2 million samples per second (2 MHz)**, so **one sample = 0.5 µs**. The source comment says
+  so directly: *"Since we are sampling at 2 Mhz every sample in our magnitude vector is 0.5 usec"*.
+  A 0.5 µs Mode S pulse therefore spans about one sample.
+- **Signal strength is the magnitude**, `sqrt(I² + Q²)`. dump1090 looks it up in a precomputed
+  table scaled by 360 to fit a 16-bit integer (lines 359-363). The scaling is an implementation
+  detail; what matters is "magnitude = distance of (I, Q) from the center".
+- **Size check:** 713,736 bytes / 2 = 356,868 samples, which is 0.178 seconds of radio at 2 MHz.
+  The byte count is even, so the file is a whole number of I/Q pairs.
+
+`modes1.bin` lives in `data/` (gitignored). Its sha256 and source are recorded in
+`tests/golden/README.md`.
+
+---
+
 ## Decoder stages
 
 To be filled in during Phases 1-4.
