@@ -169,6 +169,13 @@ flipped bit in the parity field has a fingerprint that is a power of two (1, 2, 
 those remainders get repaired instead of being read as interrogator IDs. That's exactly why two golden lines differ
 between the no-fix and default files. The first 5 bits are never repaired (decision #9).
 
+**A known weak spot of the interrogator-ID rule.** In a DF 11, a flipped bit in the parity field changes the remainder by a power of two.
+Two flipped bits there produce a small remainder such as 3, 5 or 6. If the remainder is below 80 and the address is on the
+recently-seen list, the corrupted frame is accepted as an interrogator ID. That's dump1090's rule, and we copy it to match
+the golden files. The list check is what limits the damage: the address must belong to an aircraft that recently sent a
+frame that proved itself. `tests/unit/test_accept_rejects.py` shows this is the *only* way a two-bit error gets through.
+Every two-bit error in a DF 17 is rejected, and no two-bit error ever looks clean or repairable.
+
 **How it's checked** (`tests/test_golden_bitlevel.py`):
 - All 217 no-fix golden lines are accepted: 163 clean, 20 by interrogator ID (18 × 60, 2 × 1) and 34 by address parity.
 - With the list disabled, exactly 54 are rejected.

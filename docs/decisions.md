@@ -174,7 +174,7 @@ One entry per real choice. Status is **Draft** until approved, then **Approved**
 ## #9: Never repair the first 5 bits (the DF), for either frame length
 
 - **Date:** 2026-10-12
-- **Status:** Draft, pending approval
+- **Status:** Approved
 - **Decision:** Single-bit repair (`src/decoder/crc.py`) only considers bits 5 onward, for both 56- and 112-bit frames.
 - **What dump1090 does** (read from `dump1090.c` at `efe64db`, in WSL):
   - It builds its one-bit error table over positions 5-111 of a 112-bit frame (line 806), so it never repairs the DF of a long frame.
