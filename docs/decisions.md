@@ -192,7 +192,7 @@ One entry per real choice. Status is **Draft** until approved, then **Approved**
 ## #10: Preamble signal floor of 9.0
 
 - **Date:** 2026-10-12
-- **Status:** Draft, pending approval
+- **Status:** Approved
 - **Decision:** A preamble candidate's weakest pulse must have magnitude of at least 9.0 (`SIGNAL_FLOOR` in
   `src/decoder/pipeline.py`; magnitude units are 0 to about 180).
 - **Measured on `modes1.bin`:**
@@ -203,11 +203,12 @@ One entry per real choice. Status is **Draft** until approved, then **Approved**
   measured noise level per buffer (better for live use, but more to build and test).
 - **Why:** 9.0 is three times the noise median and still well below the weakest real pulse, so it can't cause a miss here.
   Revisit with my own recordings, where signal levels will differ.
+- **Limit:** measured on one strong aircraft (`4d2023`, the only one in `modes1.bin`). Revisit with live data.
 
 ## #11: Start-sample fixture built with dump1090 prefix search
 
 - **Date:** 2026-10-12
-- **Status:** Draft, pending approval
+- **Status:** Approved
 - **Decision:** `tests/golden/modes1_starts.txt` gives each golden no-fix line's start sample. It's built in two steps:
   1. `scripts/dump1090_prefix_search.sh nofix all` (WSL) finds the shortest prefix after which dump1090 outputs the line.
   2. `scripts/make_start_fixture.py` refines it by searching estimate−8 to estimate+32 for the start where plain bit
@@ -222,9 +223,43 @@ One entry per real choice. Status is **Draft** until approved, then **Approved**
 ## #12: Skip candidates that start inside an accepted message
 
 - **Date:** 2026-10-12
-- **Status:** Draft, pending approval
+- **Status:** Approved
 - **Decision:** After a message is accepted, preamble candidates that begin before its last sample are ignored.
 - **Alternatives:** try every candidate (the same frame could be accepted twice from neighboring start samples, and
   bits inside a real message can look like a preamble).
 - **Why:** One transmission can't contain another. dump1090 also jumps past a message once its CRC passes (`dump1090.c` 1769-1771).
   On `modes1.bin` this rule causes no misses (none of the 23 misses is "skipped: inside our message").
+
+## #13: Supplementary golden files from the padded recording
+
+- **Date:** 2026-10-12
+- **Status:** Draft, pending approval
+- **Decision:** Keep the approved golden files (#4, #5) unchanged and compare against them only within the part dump1090
+  decoded: samples 0-262,143. Add four supplementary files, `tests/golden/modes1_padded_{raw,decoded}_{nofix,default}.txt`,
+  from the same pinned dump1090 run on `modes1.bin` padded with byte 127 to 786,432 bytes (3 full buffers), made by
+  `scripts/make_padded_golden.sh`. They're used only to check the tail (samples 262,144 onward).
+- **Why padding is needed:** dump1090 never decodes a file's last, partial 262,144-byte buffer (end-of-file race,
+  `dump1090.c` 496-498 and 2986-2989). Byte 127 is the "no signal" value dump1090 itself pads a short buffer with (503-506).
+- **Checked:** the padded outputs start with exactly the approved 217 lines in both modes, then add 66 (no-fix) or
+  67 (default) tail messages. Each run was repeated with identical output and empty stderr.
+- **Alternatives:** replace the approved files (changes the answer key that decision #8 was written against); ignore
+  the tail (leaves 30% of the recording unchecked).
+- **Limit:** there's no start-sample fixture for the tail, so tail lines are aligned with ours in order by hex. That's
+  weaker evidence than the start-based matching used for the first 262,144 samples.
+
+## #14: Preamble test tolerates energy in the samples beside a pulse
+
+- **Date:** 2026-10-12
+- **Status:** Draft, pending approval
+- **Decision:** A preamble candidate needs:
+  - each pulse louder than the quiet samples right beside it;
+  - the quiet samples away from pulses (offsets 4, 5, 11-14) below 2/3 of the average pulse level;
+  - the weakest pulse at or above `SIGNAL_FLOOR`.
+
+  This replaces "every pulse louder than every quiet sample".
+- **Why:** A signal that arrives between sample instants spreads each pulse into its neighbour, so testing those neighbours
+  rejects real messages. This follows the dump1090 behavior already documented in `docs/pseudocode.md` stage 2 (`dump1090.c`
+  1599-1650), written in our own form and not identical to it.
+- **Measured:** no-fix misses unchanged at 23, default misses 21 → 20 (line 193's preamble is now found and repaired), still 0
+  extras inside the region dump1090 decoded. All 194 exact-start golden messages remain candidates.
+- **Alternatives:** keep the strict test (simpler, but contradicts the physical reason above for no measured gain).
