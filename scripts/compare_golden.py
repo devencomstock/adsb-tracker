@@ -13,9 +13,13 @@ Run:  python scripts/compare_golden.py            (summary)
 from __future__ import annotations
 
 import argparse
+import difflib
 import re
 import sys
+from collections import Counter
 from pathlib import Path
+
+import numpy as np
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "src"))
@@ -37,8 +41,8 @@ MATCH_WINDOW = 16  # samples between a golden line's fixture start and our start
 DUMP1090_DECODED_SAMPLES = 262_144
 
 
-def golden_lines(mode: str) -> list[str]:
-    return re.findall(r"\*([0-9a-f]+);", (GOLDEN / f"modes1_raw_{mode}.txt").read_text())
+def golden_lines(mode: str, prefix: str = "modes1_raw") -> list[str]:
+    return re.findall(r"\*([0-9a-f]+);", (GOLDEN / f"{prefix}_{mode}.txt").read_text())
 
 
 def fixture() -> dict[int, tuple[int, str, str]]:
@@ -108,6 +112,37 @@ def why_missing(
     return f"{note}; our bits there: {frame.hex}; accept(): {verdict}"
 
 
+def miss_class(start: int, flag: str, bad_bits: str, candidates: set[int]) -> str:
+    """Sort a miss by where it fails: preamble, or how many bits plain comparison gets wrong."""
+    if start not in candidates:
+        return "preamble miss"
+    wrong = [] if bad_bits == "-" else [int(b) for b in bad_bits.split(",")]
+    if flag == "exact" or not wrong:
+        return "other"
+    if all(b < 5 for b in wrong):
+        return "DF field only"
+    if len(wrong) <= 5:
+        return "few wrong bits (1-5)"
+    if len(wrong) < 20:
+        return "6-19 wrong bits"
+    return "many wrong bits (20+)"
+
+
+def half_sample_wrong_bits(mag, start: int, golden_hex: str) -> int:
+    """Diagnostic only: fewest wrong bits when every half-bit is read half a sample earlier or
+    later (linear interpolation between neighbouring samples), for starts within 3 samples."""
+    n = len(golden_hex) * 4
+    want = np.array([c == "1" for c in bin(int(golden_hex, 16))[2:].zfill(n)])
+    best = n
+    for s in range(start - 3, start + 4):
+        x = s + DATA_OFFSET + 2 * np.arange(n)
+        for shift in (-1, 1):  # half a sample earlier or later
+            first = (mag[x] + mag[x + shift]) / 2
+            second = (mag[x + 1] + mag[x + 1 + shift]) / 2
+            best = min(best, int(((first > second) != want).sum()))
+    return best
+
+
 def overlapping_golden(start: int, starts) -> str:
     for line, (s, flag, _bits) in starts.items():
         if abs(s - start) <= MATCH_WINDOW:
@@ -137,12 +172,20 @@ def compare(mode: str, mag, starts) -> tuple[str, dict[str, int]]:
         "extra_inside_decoded_region": len(inside),
         "extra_beyond_dump1090_region": len(tail),
     }
+    classes = Counter(miss_class(*starts[line], candidates) for line in missing)
     out = [f"## {mode}", ""] + [f"- {k.replace('_', ' ')}: **{v}**" for k, v in counts.items()]
-    out += ["", "### Missing (golden line: evidence)", ""]
+    out += ["", "Missing by class: " + ", ".join(f"{k}: {v}" for k, v in sorted(classes.items()))]
+    out += ["", "### Missing (golden line: class; evidence)", ""]
     for line in missing:
         expected = " (expected, decision #8)" if not fix and line in EXPECTED_NOFIX_MISSES else ""
         why = why_missing(mag, line, golden[line], starts, candidates, messages, fix)
-        out.append(f"- line {line} `{golden[line]}`{expected}: {why}")
+        half = half_sample_wrong_bits(mag, starts[line][0], golden[line])
+        cls = miss_class(*starts[line], candidates)
+        out.append(
+            f"- line {line} `{golden[line]}`{expected}: **{cls}**; {why}; "
+            f"diagnostic: reading half a sample off gives {half} wrong bits"
+        )
+    counts["missing_by_class"] = dict(classes)
     out += ["", "### Extra inside the region dump1090 decoded (our start: evidence)", ""]
     for i in inside:
         m = messages[i]
@@ -155,13 +198,43 @@ def compare(mode: str, mag, starts) -> tuple[str, dict[str, int]]:
         f"### Extra beyond sample {DUMP1090_DECODED_SAMPLES:,} (dump1090 never decoded this part)",
         "",
     ]
-    for i in tail:
-        m = messages[i]
-        out.append(
-            f"- start {m.start} `{m.accepted.frame.hex}` DF{m.accepted.frame.df}, {m.accepted.how}"
-        )
-    out.append("")
+    tail_text, tail_counts = compare_tail(mode, golden, [messages[i] for i in tail])
+    out += [tail_text, ""]
+    counts.update(tail_counts)
     return "\n".join(out), counts
+
+
+def compare_tail(mode: str, golden: list[str], tail: list[Message]) -> tuple[str, dict[str, int]]:
+    """Our messages past sample 262,144 against the supplementary padded golden file (decision
+    #13). No start fixture exists for the tail, so lines are aligned in order by hex."""
+    padded = golden_lines(mode, prefix="modes1_padded_raw")
+    assert padded[: len(golden)] == golden, "padded golden must extend the approved golden file"
+    expected = padded[len(golden) :]
+    ours = [m.accepted.frame.hex for m in tail]
+    matcher = difflib.SequenceMatcher(a=expected, b=ours, autojunk=False)
+    out, matched = [], 0
+    for tag, a0, a1, b0, b1 in matcher.get_opcodes():
+        if tag == "equal":
+            matched += a1 - a0
+            continue
+        for i in range(a0, a1):
+            out.append(f"- padded golden line {len(golden) + i} `{expected[i]}`: not in our output")
+        for j in range(b0, b1):
+            m = tail[j]
+            out.append(
+                f"- **extra** at start {m.start} `{ours[j]}` DF{m.accepted.frame.df}, "
+                f"{m.accepted.how}: not in dump1090's padded output at this point"
+            )
+    counts = {
+        "tail_ours": len(ours),
+        "tail_padded_golden": len(expected),
+        "tail_matched": matched,
+        "tail_missing": len(expected) - matched,
+        "tail_extra": len(ours) - matched,
+    }
+    head = [f"Against `modes1_padded_raw_{mode}.txt` (lines {len(golden)}-{len(padded) - 1}):", ""]
+    head += [f"- {k.replace('_', ' ')}: **{v}**" for k, v in counts.items()]
+    return "\n".join(head + [""] + out), counts
 
 
 def main() -> None:

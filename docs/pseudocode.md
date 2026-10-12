@@ -121,6 +121,8 @@ My check tests those neighbors too (offsets 1, 3, 6, 8, 10 and 15), so it **may 
 keeps**. That's the first suspect for any missing messages in Phase 4. The likely fix is to stop testing pulse-adjacent
 samples, for the physical reason above. Where the two disagree, the result shows up as missing or extra messages,
 and decision #8 says how those get explained.
+**Phase 4 outcome:** the decoder now uses that looser, pulse-neighbour test (decision #14; `docs/decoder-notes.md` stage 2).
+It recovered one preamble (golden line 193) and no other misses.
 `SIGNAL_FLOOR` is an open parameter: the first try is a few times the median magnitude (3.0 on this file), measured
 in Phase 4 rather than guessed here. Candidates may overlap, and stage 3 decides which are real.
 

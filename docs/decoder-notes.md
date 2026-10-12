@@ -143,10 +143,17 @@ arrives. The whole file is converted at once with NumPy, with no Python loop. On
 ### 2. Preamble detection
 
 Code: `src/decoder/preamble.py`. A message begins with four pulses at sample offsets 0, 2, 7 and 9. Every other
-sample up to offset 15 should be quiet. A start sample is a **candidate** if its weakest pulse is louder than its
-loudest quiet sample, and at least `SIGNAL_FLOOR` (9.0, decision #10). This is stricter than dump1090, which
-doesn't test the samples right next to a pulse. On this recording, all 194 golden messages with an exact start
-pass it, and their weakest pulse is never below 24.4.
+sample up to offset 15 should be quiet. A signal rarely lines up exactly with the sample instants, though. When it
+arrives between two of them, part of each pulse spills into the sample right beside it. So a start sample is a
+**candidate** if three things hold (decision #14):
+- **Shape:** each pulse is louder than the quiet sample on each side of it inside the preamble (0 > 1, 2 > 1, 2 > 3,
+  7 > 6, 7 > 8, 9 > 8).
+- **Gaps:** the quiet samples well away from any pulse (4, 5 and 11-14) are each below two-thirds of the average pulse level.
+- **Strength:** the weakest pulse is at least `SIGNAL_FLOOR` (9.0, decision #10).
+
+This follows the dump1090 behavior described in `docs/pseudocode.md` stage 2, in our own formulation. An earlier, stricter
+version (every pulse louder than all 12 quiet samples) found the same 194 exact-start golden messages but missed
+the preamble of line 193. All 194 still pass, and their weakest pulse is never below 24.4.
 
 ### 3. Pulses to bits
 

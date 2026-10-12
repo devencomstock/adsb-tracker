@@ -50,6 +50,19 @@ def test_loud_quiet_sample_breaks_the_preamble() -> None:
     assert 5 not in find_candidates(mag, signal_floor=9.0).tolist()
 
 
+def test_energy_beside_a_pulse_is_tolerated() -> None:
+    # A pulse arriving between sample instants spills into its neighbour (decision #14).
+    mag = synthetic(Frame.from_hex("8f4d2023587f345e35837e2218b2"))
+    mag[5 + 1] = mag[5 + 8] = mag[5 + 10] = PULSE * 0.9
+    assert 5 in find_candidates(mag, signal_floor=9.0).tolist()
+
+
+def test_neighbour_louder_than_its_pulse_breaks_the_preamble() -> None:
+    mag = synthetic(Frame.from_hex("8f4d2023587f345e35837e2218b2"))
+    mag[5 + 3] = PULSE + 1
+    assert 5 not in find_candidates(mag, signal_floor=9.0).tolist()
+
+
 def test_too_short_signal_has_no_candidates() -> None:
     assert find_candidates(np.zeros(100), signal_floor=9.0).size == 0
 
