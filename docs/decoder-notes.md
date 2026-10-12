@@ -144,8 +144,9 @@ measured result against dump1090 is in [phase4-golden-report.md](phase4-golden-r
 - **Matched against dump1090's answer key:** 216 of 217 (default mode) and 213 of 217 (no-fix).
 - **Every remaining miss has a written reason.**
 - **Extras:** 3 messages dump1090 itself missed, listed with their evidence.
-- **Speed:** about 6.7 times real time. Most of the time goes to finding preamble candidates (about 14 ms) and the
-  per-candidate Python loop (about 8 ms).
+- **Speed:** 4.2 to 6.5 times real time in default mode with the timing re-read on (the range across 3 measurement
+  sessions; the machine's speed drifts between sessions). Method and full table: report, "Speed" section. Most of the
+  time goes to finding preamble candidates (13.7-22.7 ms per run) and the per-candidate Python loop (8.2-10.8 ms).
 
 ### 1. Samples to magnitude
 

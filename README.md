@@ -56,7 +56,8 @@ Current result on `modes1.bin` ([docs/phase4-golden-report.md](docs/phase4-golde
 - **default mode:** 216/217 messages matched;
 - **no-fix mode:** 213/217 matched;
 - **every miss explained, and every extra explained;**
-- **speed:** about 6.7 times real time.
+- **speed:** 4.2 to 6.5 times real time in default mode, measured the same way every time (the method and the
+  range across sessions are in the report's "Speed" section).
 
 The tests that need the recording are skipped when `data\modes1.bin` is absent.
 

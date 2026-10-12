@@ -318,7 +318,11 @@ One entry per real choice. Status is **Draft** until approved, then **Approved**
   - **default:** missing 20 → 1 (174);
   - **extras inside the decoded region:** 4 (no-fix) and 3 (default), all explained under decision #8 (revised);
   - **holdout tail, untouched by tuning:** 66/66 (no-fix) and 67/67 (default) matched, with 2 extras each.
-- **Cost:** about 2.5 ms extra on `modes1.bin` (24 → 27 ms). The decoder still runs at about 6.7 times real time on one strong aircraft.
+- **Cost:** measured with the single method in `scripts/measure_speed.py` (decoding interleaved with and without the
+  re-read, 3 sessions): the re-read adds 0.9 to 1.9 ms per run in no-fix and −0.1 to 4.5 ms in default mode on
+`modes1.bin`, which is partly within the measurement noise. Default mode with the re-read on runs at
+  4.2 to 6.5 times real time on one strong aircraft (`docs/phase4-golden-report.md`, "Speed"). An earlier figure of
+  "about 6.7 times" came from one session and isn't the number to quote.
 - **Risk:** a falsely accepted re-read frame would add its address to the recently-seen list. We match dump1090 here and
   revisit with live data in Phase 5.
 
