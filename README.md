@@ -61,6 +61,16 @@ Current result on `modes1.bin` ([docs/phase4-golden-report.md](docs/phase4-golde
 
 The tests that need the recording are skipped when `data\modes1.bin` is absent.
 
+## Data sources and credits
+
+- **adsb.lol** (`api.adsb.lol`): the automated public feed. Its data is licensed under the
+  [Open Database License (ODbL)](https://opendatacommons.org/licenses/odbl/summary/). Anything derived from it is credited to adsb.lol.
+- **The OpenSky Network** (`opensky-network.org`): used only for manual, one-off research snapshots, as its
+  [terms of use](https://opensky-network.org/about/terms-of-use) allow. Nothing from OpenSky is stored or committed (decision #18).
+- **FAA**: the Releasable Aircraft Database and the NFDC airport record for KLAF.
+
+Recordings, feed snapshots and downloaded data live in `data/` and are never committed.
+
 Database (not started yet, needs Docker Desktop):
 
 ```powershell
