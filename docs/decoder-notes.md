@@ -180,6 +180,16 @@ golden bits with this plain comparison (`tests/golden/modes1_starts.txt`, flag `
 - **Why not just shift every sample by half a step?** That throws away the sample holding most of a pulse, and compares
   each bit against the next bit's sample. It made a message that was fine worse.
 
+**Observation, not proven: an apparent dump1090 blind spot for early-arriving frames.**
+- **Early offsets.** Every extra message our timing re-read finds (samples 43,313, 52,744, 129,115, 144,765 and the tail's
+  283,198) has an *early* offset, −0.32 to −0.39 of a sample.
+- **The same failing condition.** Most of all six extras (`known_extras.txt` and `known_extras_tail.txt`) fail the same
+  dump1090 preamble condition, "sample 6 below pulse 0": 52,744, 129,115, 283,198, and the plain-read tail extra 314,791,
+  whose estimated offset is −0.21.
+- **A plausible mechanism.** When pulses arrive early, pulse 7 spills backwards into sample 6, which can then outgrow a
+  weak pulse 0, and that's exactly the comparison dump1090 makes.
+- **Why it's not proven.** It's six frames from one aircraft in one recording. It needs checking on recordings of my own.
+
 Already built at checkpoint A: the **frame length** (`src/decoder/frame.py`, `frame_length`). Once the first 5 bits
 (the DF) are read, the DF alone says how long the frame is. DF 16 to 21 are 112 bits and everything else is 56, which is
 dump1090's rule (`dump1090.c` 746-753). The Riddle says DF 24 is also long; we follow dump1090 here because it's the answer key.

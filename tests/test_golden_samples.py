@@ -17,6 +17,7 @@ from decoder.bits import read_bits, to_frame
 from decoder.pipeline import SIGNAL_FLOOR, Message, decode_magnitudes
 from decoder.preamble import DATA_OFFSET, find_candidates
 from decoder.samples import load_iq, magnitude
+from decoder.timing import offset_estimate
 
 REPO = Path(__file__).resolve().parents[1]
 RECORDING = REPO / "data" / "modes1.bin"
@@ -117,6 +118,26 @@ def test_every_extra_is_explained(mag, fixture_rows, mode: str) -> None:
         assert listed and listed[0].strip(), ("(c)/(d) not in known_extras.txt", m.start)
         assert m.accepted.how in (How.CLEAN, How.ADDRESS_PARITY), ("(a)", m.start, m.accepted.how)
         assert all(mag[m.start + k] >= SIGNAL_FLOOR for k in (0, 2, 7, 9)), ("(b)", m.start)
+
+
+@pytest.mark.parametrize("fix", [False, True])
+def test_listed_tail_extras_meet_the_criteria(mag, fix: bool) -> None:
+    # Holdout (decision #13): this checks the two classified tail extras still meet decision #8's
+    # criteria. It is not a pass rule for the tail, and nothing is tuned on it.
+    rows = [
+        text.split("\t")
+        for text in (STARTS.parent / "known_extras_tail.txt")
+        .read_text(encoding="utf-8")
+        .splitlines()
+        if text and not text.startswith("#")
+    ]
+    decoded = {m.start: m for m in decode_magnitudes(mag, fix)}
+    for start, msg_hex, _mode, offset, reason in rows:
+        m = decoded[int(start)]
+        assert m.accepted.frame.hex == msg_hex and reason.strip()
+        assert m.accepted.how in (How.CLEAN, How.ADDRESS_PARITY)
+        assert all(mag[m.start + k] >= SIGNAL_FLOOR for k in (0, 2, 7, 9))
+        assert offset_estimate(mag, m.start) == pytest.approx(float(offset), abs=0.01)
 
 
 @pytest.mark.parametrize(

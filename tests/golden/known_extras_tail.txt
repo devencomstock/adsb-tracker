@@ -1,0 +1,7 @@
+# Extra messages in the holdout tail (samples 262,144 onward), classified with the same criteria as
+# known_extras.txt (decision #8, revised). This is NOT a pass rule for the tail: the holdout stays untuned and is
+# reported separately (decision #13). tests/test_golden_samples.py checks the criteria hold for these two.
+# offset = the preamble's estimated timing offset (stage 3d), whether or not the re-read was needed.
+# start	hex	mode	offset	reason
+283198	5d4d20237a55a6	both	-0.39	rejected by dump1090's preamble condition "sample 6 below pulse 0"; found by our timing re-read at the estimated offset; remainder 0; pulses 48-59
+314791	8d4d202399108eab6870142758f2	both	-0.21	rejected by dump1090's preamble condition "sample 6 below pulse 0" (pulse 0 is 11.3, sample 6 is 17.7); found by the plain read; remainder 0; identical to the message dump1090 decodes at 317,950 (decision #14); pulses 11-25
