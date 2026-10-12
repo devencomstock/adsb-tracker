@@ -129,8 +129,23 @@ In plain words:
 
 ## Decoder stages
 
-To be filled in during Phases 1-4. The Phase 3 pseudocode, with a hand trace of a real message through each
-stage, is in [pseudocode.md](pseudocode.md).
+One section per stage, in the order the decoder runs them (`src/decoder/pipeline.py`):
+1. Turn bytes into magnitudes.
+2. Find candidate preambles.
+3. Read bits, with the timing re-read if the plain read fails.
+4. Check the CRC and decide whether to accept.
+5. Route by message type.
+6. Decode the fields.
+
+The design, with a hand trace of a real message through every stage, is in [pseudocode.md](pseudocode.md). The
+measured result against dump1090 is in [phase4-golden-report.md](phase4-golden-report.md).
+
+**At a glance (end of Phase 4, `modes1.bin`):**
+- **Matched against dump1090's answer key:** 216 of 217 (default mode) and 213 of 217 (no-fix).
+- **Every remaining miss has a written reason.**
+- **Extras:** 3 messages dump1090 itself missed, listed with their evidence.
+- **Speed:** about 6.7 times real time. Most of the time goes to finding preamble candidates (about 14 ms) and the
+  per-candidate Python loop (about 8 ms).
 
 ### 1. Samples to magnitude
 
