@@ -347,3 +347,58 @@ One entry per real choice. Status is **Draft** until approved, then **Approved**
 - **Why:** The DF 0/4/20 altitude and the DF 5/21 squawk are small, have a cited layout (Riddle, "Surveillance reply"), and can
   be checked against 34 golden messages and pyModeS. The squawk is needed for the 7500/7600/7700 rules in Phase 6.
   Everything left out is either absent from this recording or needs tracking state.
+
+## #18: Public feeds: adsb.lol automated, OpenSky manual research snapshots only
+
+- **Date:** 2026-10-12
+- **Status:** Approved (your decision at the Phase 5 plan review)
+- **Decision:** adsb.lol is the only automated public feed. OpenSky is used only for manual, one-off, anonymous snapshots as
+  research use: no credentials, and its data is never stored or committed (counts may be read off the screen, nothing is written
+  to disk). Both are credited in the README, and later in the dashboard; adsb.lol's data is ODbL.
+- **Why:** OpenSky's terms (`opensky-network.org/about/terms-of-use`, checked 2026-10-12) license data "solely for the purpose of
+  non-profit research and non-profit education", and say "Operational use of the REST API in any live product, service, or
+  automated system also requires a written license, regardless of the entity's non-profit status". An automated poller
+  feeding a dashboard is operational use. adsb.lol's API (`api.adsb.lol/api/openapi.json`, v0.0.2) says "You can use the API
+  for free", its data license is ODbL, and its repository says "Rate limits are dynamic based on the environment load".
+- **Alternatives:** request a written OpenSky license (slow, and not needed yet); drop OpenSky entirely (loses an independent
+  cross-check of coverage).
+
+## #19: How to read the KLAF coverage check (written before any snapshot was taken)
+
+- **Date:** 2026-10-12
+- **Status:** Draft, pending approval
+- **Question:** Do public feeds see the low-altitude flight-training traffic around KLAF well enough to be a primary source
+  until my own antenna exists (decision #2)?
+- **Reference point:** the KLAF airport reference point. FAA NFDC airport record (`nfdc.faa.gov`, airport LAF): 40-24-44.296 N /
+  86-56-12.831 W = 40.412304, -86.936898; elevation 605.8 ft. adsb.lol's airport endpoint (`api.adsb.lol/api/0/airport/KLAF`)
+  gives 40.4123, -86.936897 and 606 ft. The two agree to within about 0.1 m.
+- **Area:** within 10 NM of the reference point.
+- **Altitude bands**, relative to field elevation, from barometric altitude (feet, MSL) minus 606 ft:
+  - **ground:** the feed's on-ground flag, or adsb.lol `alt_baro` = "ground";
+  - **very low:** 0-500 ft AGL;
+  - **pattern:** 500-1,500 ft AGL. The FAA AIM (chapter 4, section 3) says "Propeller-driven aircraft enter the traffic
+    pattern at 1,000 feet above ground level (AGL)", so KLAF's pattern is about 1,606 ft MSL, inside this band;
+  - **low:** 1,500-5,000 ft AGL;
+  - **high:** above 5,000 ft AGL.
+
+  Aircraft with no barometric altitude are counted separately.
+- **Counted:** an aircraft counts in a snapshot only if its position is at most 60 s old (adsb.lol: `seen_pos`; OpenSky: `now -
+  time_position`). It's broken down by data type: adsb.lol `type` (`adsb_*`, `adsr_*`, `mlat`, `tisb_*`, other), and OpenSky
+  `position_source` (0 ADS-B, 1 ASTERIX, 2 MLAT, 3 FLARM).
+- **Training hours:** 08:00-19:00 local (America/Indiana/Indianapolis) for this check. Snapshots outside them are reported
+  separately.
+- **The rule.** Consider the training-hours snapshots, and the aircraft at or below the pattern band (ground, very low or pattern):
+  - **Supplement only:** fewer than half of those snapshots show any such aircraft, **or** most of the aircraft seen in that
+    region are positioned only by MLAT/TIS-B. Verdict: public feeds are a supplement, and my own antenna will be the primary
+    source for KLAF traffic.
+  - **Usable as primary until the antenna arrives:** at least half of those snapshots show such an aircraft, positioned mainly
+    by ADS-B.
+  - **Not enough data:** fewer than 12 training-hours snapshots. No verdict yet; collect more.
+- **Limits stated up front:**
+  - **Invisible traffic:** any aircraft without ADS-B Out (and not covered by MLAT/TIS-B) is invisible to every public feed.
+    So this check can only show that the feeds *see* low traffic, never that they see *all* of it.
+  - **Weather and season:** training activity varies with weather and season.
+  - **One afternoon:** a few hours of one afternoon is a small sample. The verdict should be revisited with my own antenna
+    (ROADMAP Phase 5 live measurements).
+- **Alternatives:** count only "any aircraft within 10 NM" (dominated by airliners at cruise, so it says nothing about training
+  traffic); compare against a list of Purdue-registered aircraft (needs checkpoint E first; planned as a later cross-check).
