@@ -1,0 +1,13 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+
+# Secrets: commit .env.example, never .env
+.env
+
+# Recordings and large data stay local; only the README is committed
+data/*
+!data/README.md

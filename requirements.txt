@@ -1,0 +1,2 @@
+# Runtime dependencies
+numpy==2.5.4
