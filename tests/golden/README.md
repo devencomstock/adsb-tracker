@@ -69,6 +69,17 @@ part of the decoder. From the repo root, in PowerShell:
 .\.venv\Scripts\python scripts\golden_stats.py --trace    # also the sample-level trace
 ```
 
+It also partitions every frame of each file into exactly one category (the categories sum to 217), lists the 6 frames dump1090
+repaired in the default run, and checks that dump1090-style single-bit repair turns the no-fix file into the default file.
+
+The start samples of the repaired frames come from `scripts/dump1090_prefix_search.sh`. For each frame, it finds the shortest
+prefix of `modes1.bin` after which dump1090 outputs that frame. Run it in WSL from the repo root (the Windows checkout
+appears under `/mnt/c/...`):
+
+```bash
+bash scripts/dump1090_prefix_search.sh nofix 0 112 128 174 185 188 193
+```
+
 ## What error correction changes (default vs no-fix)
 
 Both settings produce the **same 217 messages**. Error correction adds no messages on this
